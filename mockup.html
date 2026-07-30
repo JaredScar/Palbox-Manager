@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Palbox — Palworld Server Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#120F1C;
+    --panel:#1C1832;
+    --panel-raised:#26213F;
+    --line:#392F5A;
+    /* Pal-type accent system — each section borrows a color from the game's element types */
+    --crimson:#FF5D73;   /* Pal Sphere red — brand / server status */
+    --cream:#FFE9C7;     /* Pal Sphere cream — warm highlight */
+    --ember:#FF9D3D;     /* fire — cpu / heat metrics */
+    --aqua:#2FD9E8;      /* water — players / network */
+    --lime:#7CE666;      /* grass — online status / auto backups */
+    --gold:#FFD447;      /* electric — backups section */
+    --violet:#B27CF2;    /* dragon — updates section */
+    --teal:#3FD8B4;      /* neutral/normal — mods section */
+    --rust:#FF5C5C;      /* danger */
+    --fog:#A79FC7;
+    --bone:#F3EFFC;
+    --bone-dim:#C6BFE2;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--void);
+    color:var(--bone);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--crimson); color:var(--void);}
+
+  /* ---------- Titlebar (Electron shell chrome) ---------- */
+  .titlebar{
+    display:none;
+    align-items:center;
+    justify-content:space-between;
+    height:38px;
+    padding:0 14px;
+    background:#0C0A16;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+    -webkit-app-region:drag;
+    user-select:none;
+  }
+  .titlebar.show{ display:flex; }
+  .titlebar .tb-left{ display:flex; align-items:center; gap:8px; }
+  .tb-dot{ width:11px; height:11px; border-radius:50%; background:#43395f; }
+  .titlebar .tb-title{ font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--fog); letter-spacing:0.03em; }
+  .titlebar .tb-right{ display:flex; align-items:center; gap:10px; -webkit-app-region:no-drag; }
+
+  .mode-toggle{
+    display:flex; align-items:center; gap:2px;
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:99px;
+    padding:3px;
+  }
+  .mode-toggle button{
+    -webkit-app-region:no-drag;
+    border:none; background:transparent; cursor:pointer;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px; font-weight:500;
+    color:var(--fog);
+    padding:5px 11px;
+    border-radius:99px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .mode-toggle button.active{ background:var(--crimson); color:#2a0d13; }
+
+  .body-frame{ display:flex; flex:1; min-height:0; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    width:240px;
+    flex-shrink:0;
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    padding:22px 14px;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:6px 10px 22px 10px;
+    border-bottom:1px solid var(--line);
+    margin-bottom:18px;
+  }
+  .brand-mark{
+    width:32px; height:32px; border-radius:50%;
+    background:var(--crimson);
+    position:relative;
+    flex-shrink:0;
+    border:2px solid #1a1428;
+    overflow:hidden;
+  }
+  .brand-mark::before{
+    content:"";
+    position:absolute; left:-2px; right:-2px; bottom:-2px; height:50%;
+    background:var(--cream);
+    border-top:2px solid #1a1428;
+  }
+  .brand-mark::after{
+    content:"";
+    position:absolute; top:50%; left:50%; width:9px; height:9px;
+    background:var(--bone); border-radius:50%;
+    transform:translate(-50%,-50%);
+    border:2px solid #1a1428;
+  }
+  .brand-text{ line-height:1.15; }
+  .brand-text .name{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:15px; letter-spacing:0.2px;}
+  .brand-text .sub{ font-size:11px; color:var(--fog); font-family:'JetBrains Mono',monospace;}
+
+  .server-picker{
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:10px 12px;
+    margin-bottom:20px;
+    font-size:12.5px;
+  }
+  .server-picker .label{ color:var(--fog); font-size:10.5px; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;}
+  .server-picker .val{ font-family:'JetBrains Mono',monospace; color:var(--bone); display:flex; align-items:center; gap:7px;}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--lime); flex-shrink:0;}
+
+  nav{ display:flex; flex-direction:column; gap:2px; }
+  .nav-item{
+    display:flex; align-items:center; gap:11px;
+    padding:10px 12px;
+    border-radius:8px;
+    color:var(--fog);
+    font-size:13.5px; font-weight:500;
+    cursor:pointer;
+    border:1px solid transparent;
+    transition:background .15s, color .15s;
+  }
+  .nav-item svg{ width:16px; height:16px; opacity:.75; flex-shrink:0; }
+  .nav-item:hover{ background:var(--panel-raised); color:var(--bone); }
+  .nav-item.active{ color:var(--accent, var(--crimson)); background:color-mix(in srgb, var(--accent, var(--crimson)) 14%, transparent); border-color:color-mix(in srgb, var(--accent, var(--crimson)) 32%, transparent); }
+  .nav-item.active svg{ opacity:1; }
+  .nav-item[data-view="dashboard"]{ --accent:var(--crimson); }
+  .nav-item[data-view="players"]{ --accent:var(--ember); }
+  .nav-item[data-view="backups"]{ --accent:var(--gold); }
+  .nav-item[data-view="updates"]{ --accent:var(--violet); }
+  .nav-item[data-view="mods"]{ --accent:var(--teal); }
+  .nav-item[data-view="console"]{ --accent:var(--lime); }
+  .nav-item[data-view="settings"]{ --accent:var(--aqua); }
+
+  .sidebar-foot{
+    margin-top:auto;
+    padding-top:16px;
+    border-top:1px solid var(--line);
+    font-size:11px;
+    color:var(--fog);
+    font-family:'JetBrains Mono',monospace;
+    display:flex;
+    justify-content:space-between;
+  }
+
+  /* ---------- Server switcher (multi-server) ---------- */
+  .server-picker{ cursor:pointer; }
+  .server-picker .row1{ display:flex; align-items:center; justify-content:space-between; }
+  .server-picker .val{ font-family:'JetBrains Mono',monospace; color:var(--bone); display:flex; align-items:center; gap:7px;}
+  .server-picker .chev{ width:12px; height:12px; color:var(--fog); flex-shrink:0; }
+  .server-picker .count{ font-size:10.5px; color:var(--fog); margin-top:5px; }
+
+  /* ---------- Sparkline chart ---------- */
+  .chart-wrap{ display:flex; gap:22px; }
+  .chart-box{ flex:1; }
+  .chart-box .ck{ font-size:10.5px; color:var(--fog); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:flex; align-items:center; gap:6px;}
+  .chart-box .ck .sw{ width:7px; height:7px; border-radius:50%; }
+  .chart-box svg{ width:100%; height:64px; display:block; }
+
+  /* ---------- Watchdog chip ---------- */
+  .watchdog-chip{ display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:99px; background:rgba(124,230,102,0.1); border:1px solid rgba(124,230,102,0.35); font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--lime); }
+  .watchdog-chip .wd-dot{ width:6px; height:6px; border-radius:50%; background:var(--lime); }
+
+  /* ---------- Players / Mods tables ---------- */
+  .tag.whitelist{ background:rgba(124,230,102,0.14); color:var(--lime); border:1px solid rgba(124,230,102,0.35);}
+  .tag.banned{ background:rgba(255,92,92,0.14); color:var(--rust); border:1px solid rgba(255,92,92,0.35);}
+  .tag.enabled{ background:rgba(63,216,180,0.14); color:var(--teal); border:1px solid rgba(63,216,180,0.35);}
+  .tag.disabled{ background:var(--panel-raised); color:var(--fog); border:1px solid var(--line);}
+
+  /* ---------- Main ---------- */
+  main{ flex:1; padding:30px 40px 60px; max-width:1160px; overflow-y:auto;}
+  .view{ display:none; }
+  .view.active{ display:block; animation:fade .25s ease; }
+  @keyframes fade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  .view-head{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:26px; }
+  .eyebrow{ font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:6px; color:var(--head-accent, var(--crimson));}
+  h1{ font-family:'Space Grotesk',sans-serif; font-size:27px; font-weight:600; letter-spacing:-0.2px;}
+  .view-head p{ color:var(--fog); font-size:13.5px; margin-top:4px; max-width:460px;}
+  #dashboard .eyebrow{ --head-accent:var(--crimson);}
+  #players .eyebrow{ --head-accent:var(--ember);}
+  #backups .eyebrow{ --head-accent:var(--gold);}
+  #updates .eyebrow{ --head-accent:var(--violet);}
+  #mods .eyebrow{ --head-accent:var(--teal);}
+  #console .eyebrow{ --head-accent:var(--lime);}
+  #settings .eyebrow{ --head-accent:var(--aqua);}
+
+  .btn{
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    padding:10px 16px;
+    border-radius:8px;
+    border:1px solid var(--line);
+    background:var(--panel-raised);
+    color:var(--bone);
+    cursor:pointer;
+    display:inline-flex; align-items:center; gap:8px;
+    transition:transform .1s, border-color .15s;
+  }
+  .btn:hover{ border-color:#4a4076; }
+  .btn:active{ transform:scale(0.98); }
+  .btn.primary{ background:var(--crimson); color:#2a0d13; border-color:transparent;}
+  .btn.primary:hover{ filter:brightness(1.08); }
+  .btn.gold{ background:var(--gold); color:#2e2005; border-color:transparent;}
+  .btn.violet{ background:var(--violet); color:#1f0b3b; border-color:transparent;}
+  .btn.aqua{ background:var(--aqua); color:#052b30; border-color:transparent;}
+  .btn.danger{ background:transparent; border-color:rgba(255,92,92,0.5); color:var(--rust); }
+  .btn.danger:hover{ background:rgba(255,92,92,0.1); }
+  .btn.ghost{ background:transparent; }
+  .btn:disabled{ opacity:0.4; cursor:not-allowed; }
+  .btn-row{ display:flex; gap:10px; }
+
+  /* ---------- Dashboard ---------- */
+  .dash-grid{ display:grid; grid-template-columns:280px 1fr; gap:22px; margin-bottom:22px;}
+  .status-card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:26px;
+    display:flex; flex-direction:column; align-items:center;
+    text-align:center;
+  }
+  .sphere-wrap{ position:relative; width:136px; height:136px; margin-bottom:16px;}
+  .sphere-wrap svg{ width:100%; height:100%; transform:rotate(-90deg); }
+  .sphere-track{ fill:none; stroke:var(--line); stroke-width:6; }
+  .sphere-fill{ fill:none; stroke:var(--lime); stroke-width:6; stroke-linecap:round; stroke-dasharray:326; stroke-dashoffset:18; }
+  .sphere-core{
+    position:absolute; inset:14px; border-radius:50%;
+    background:#26202f;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border:2px solid #0c0a16;
+  }
+  .sphere-core .state{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; color:var(--lime); letter-spacing:0.03em;}
+  .sphere-core .uptime{ font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--fog); margin-top:3px;}
+  .status-name{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; margin-bottom:2px;}
+  .status-sub{ font-size:12px; color:var(--fog); font-family:'JetBrains Mono',monospace; margin-bottom:18px;}
+
+  .stat-panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:22px 24px;
+  }
+  .stat-panel .row-title{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; margin-bottom:16px; color:var(--bone-dim);}
+  .stat-cells{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px;}
+  .cell{ background:var(--panel-raised); border:1px solid var(--line); border-radius:12px; padding:14px 16px; border-top:2px solid var(--c-accent);}
+  .cell.players{ --c-accent:var(--aqua); }
+  .cell.mem{ --c-accent:var(--violet); }
+  .cell.cpu{ --c-accent:var(--ember); }
+  .cell .k{ font-size:10.5px; color:var(--fog); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;}
+  .cell .v{ font-family:'JetBrains Mono',monospace; font-size:19px; font-weight:500; color:var(--c-accent);}
+  .players-list{ display:flex; flex-direction:column; gap:8px; }
+  .player-row{ display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background:var(--panel-raised); border-radius:8px; font-size:12.5px;}
+  .player-row .who{ display:flex; align-items:center; gap:9px; }
+  .player-avatar{ width:22px; height:22px; border-radius:7px; flex-shrink:0;}
+  .player-avatar.a1{ background:var(--crimson); }
+  .player-avatar.a2{ background:var(--aqua); }
+  .player-avatar.a3{ background:var(--violet); }
+  .player-row .ping{ font-family:'JetBrains Mono',monospace; color:var(--lime); font-size:11px;}
+
+  .panel-section{ background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:22px 24px; margin-bottom:20px;}
+  .panel-section .row-title{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; margin-bottom:4px; color:var(--bone-dim);}
+  .panel-section .row-desc{ font-size:12px; color:var(--fog); margin-bottom:16px;}
+
+  /* ---------- Backups ---------- */
+  .retention-strip{ display:flex; gap:8px; margin-bottom:22px; }
+  .seg{ flex:1; height:56px; border-radius:10px; position:relative; overflow:hidden; border:1px solid var(--line); background:var(--panel-raised); display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .seg.filled{ border-color:rgba(255,212,71,0.45); background:rgba(255,212,71,0.08); }
+  .seg .d{ font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--fog); }
+  .seg.filled .d{ color:var(--gold); }
+  .seg .n{ font-family:'Space Grotesk',sans-serif; font-size:13px; font-weight:600; margin-top:2px;}
+  .seg.today{ border-style:dashed; border-color:var(--fog); }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  thead th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:0.06em; color:var(--fog); font-weight:500; padding:0 12px 10px; border-bottom:1px solid var(--line);}
+  tbody td{ padding:13px 12px; border-bottom:1px solid var(--line); }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:rgba(255,255,255,0.02); }
+  .mono{ font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--bone-dim); }
+  .tag{ display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:3px 9px; border-radius:99px; font-family:'JetBrains Mono',monospace; }
+  .tag.manual{ background:rgba(255,212,71,0.14); color:var(--gold); border:1px solid rgba(255,212,71,0.35);}
+  .tag.auto{ background:rgba(124,230,102,0.14); color:var(--lime); border:1px solid rgba(124,230,102,0.35);}
+  .row-actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .icon-btn{ width:30px; height:30px; border-radius:8px; border:1px solid var(--line); background:var(--panel-raised); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--fog); }
+  .icon-btn:hover{ color:var(--bone); border-color:#4a4076; }
+  .icon-btn svg{ width:14px; height:14px; }
+
+  /* ---------- Updates ---------- */
+  .update-banner{ display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-radius:14px; background:rgba(178,124,242,0.08); border:1px solid rgba(178,124,242,0.4); margin-bottom:22px;}
+  .update-banner .left{ display:flex; align-items:center; gap:14px; }
+  .pulse-dot{ width:11px; height:11px; border-radius:50%; background:var(--violet); box-shadow:0 0 0 0 rgba(178,124,242,0.6); animation:pulse 1.8s infinite; flex-shrink:0;}
+  @keyframes pulse{ 0%{box-shadow:0 0 0 0 rgba(178,124,242,0.55);} 70%{box-shadow:0 0 0 9px rgba(178,124,242,0);} 100%{box-shadow:0 0 0 0 rgba(178,124,242,0);} }
+  .update-banner .title{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14.5px; }
+  .update-banner .desc{ font-size:12px; color:var(--fog); margin-top:2px; font-family:'JetBrains Mono',monospace;}
+
+  .build-compare{ display:grid; grid-template-columns:1fr auto 1fr; gap:16px; align-items:center; margin-bottom:22px;}
+  .build-box{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 20px; }
+  .build-box .k{ font-size:10.5px; text-transform:uppercase; color:var(--fog); letter-spacing:0.06em; margin-bottom:8px;}
+  .build-box .id{ font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:500; }
+  .build-box.new{ border-color:rgba(178,124,242,0.4); }
+  .build-box.new .id{ color:var(--violet); }
+  .arrow{ color:var(--fog); font-size:20px; }
+
+  .history-item{ display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--line); font-size:12.5px;}
+  .history-item:last-child{ border-bottom:none; }
+  .history-item .hdot{ width:8px; height:8px; border-radius:50%; background:var(--lime); flex-shrink:0;}
+  .history-item .ht{ color:var(--fog); font-family:'JetBrains Mono',monospace; font-size:11px; margin-left:auto;}
+
+  /* ---------- Console ---------- */
+  .console{ background:#0A0912; border:1px solid var(--line); border-radius:14px; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.85; height:360px; overflow-y:auto; }
+  .console .ln{ display:flex; gap:12px; }
+  .console .ts{ color:#5b5378; flex-shrink:0; }
+  .console .lvl{ flex-shrink:0; width:44px; }
+  .console .lvl.info{ color:var(--lime); }
+  .console .lvl.warn{ color:var(--gold); }
+  .console .lvl.sys{ color:var(--aqua); }
+  .console .msg{ color:#d8d2ec; }
+  .cmd-bar{ display:flex; gap:10px; margin-top:14px; }
+  .cmd-bar input{ flex:1; background:var(--panel-raised); border:1px solid var(--line); border-radius:9px; padding:11px 14px; color:var(--bone); font-family:'JetBrains Mono',monospace; font-size:12.5px; }
+  .cmd-bar input:focus{ outline:none; border-color:var(--lime); }
+
+  /* ---------- Settings ---------- */
+  .settings-tabs{ display:flex; gap:8px; margin-bottom:22px; flex-wrap:wrap; }
+  .stab{ font-family:'JetBrains Mono',monospace; font-size:11.5px; font-weight:500; padding:8px 14px; border-radius:99px; border:1px solid var(--line); background:var(--panel-raised); color:var(--fog); cursor:pointer; display:flex; align-items:center; gap:7px;}
+  .stab .sw{ width:7px; height:7px; border-radius:50%; }
+  .stab.active{ color:var(--bone); border-color:var(--s-accent); background:color-mix(in srgb, var(--s-accent) 16%, transparent); }
+  .stab.active .sw{ background:var(--s-accent); }
+  .stab[data-tab="world"]{ --s-accent:var(--lime); }
+  .stab[data-tab="rates"]{ --s-accent:var(--gold); }
+  .stab[data-tab="multiplayer"]{ --s-accent:var(--aqua); }
+  .stab[data-tab="combat"]{ --s-accent:var(--crimson); }
+  .stab[data-tab="building"]{ --s-accent:var(--violet); }
+
+  .stab-panel{ display:none; }
+  .stab-panel.active{ display:block; }
+
+  .form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .field{ display:flex; flex-direction:column; gap:7px; }
+  .field label{ font-size:11.5px; color:var(--fog); font-weight:500; }
+  .field input, .field select{ background:var(--panel-raised); border:1px solid var(--line); border-radius:9px; padding:10px 12px; color:var(--bone); font-size:13px; font-family:'Inter',sans-serif;}
+  .field input:focus, .field select:focus{ outline:none; border-color:var(--aqua); }
+  .field .hint{ font-size:11px; color:#7d759c; }
+  .toggle-row{ display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid var(--line);}
+  .toggle-row:last-child{ border-bottom:none; }
+  .toggle-row .t{ font-size:13px; font-weight:500; }
+  .toggle-row .d{ font-size:11.5px; color:var(--fog); margin-top:2px;}
+  .switch{ width:38px; height:22px; border-radius:99px; background:var(--panel-raised); border:1px solid var(--line); position:relative; cursor:pointer; flex-shrink:0;}
+  .switch.on{ background:rgba(47,217,232,0.22); border-color:var(--aqua);}
+  .switch::after{ content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--fog); transition:transform .15s;}
+  .switch.on::after{ background:var(--aqua); transform:translateX(16px); }
+
+  .raw-toggle-btn.active{ border-color:var(--aqua); color:var(--aqua); background:rgba(47,217,232,0.1); }
+  .raw-editor{ display:none; }
+  .raw-editor.show{ display:block; }
+  .settings-body.raw-mode > .settings-tabs, .settings-body.raw-mode > .stab-panel{ display:none !important; }
+  .raw-textarea{ width:100%; height:420px; background:#0A0912; border:1px solid var(--line); border-radius:14px; padding:18px 20px; color:#d8d2ec; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.8; resize:vertical; }
+  .raw-textarea:focus{ outline:none; border-color:var(--aqua); }
+</style>
+</head>
+<body>
+
+<div class="titlebar show" id="titlebar">
+  <div class="tb-left">
+    <span class="tb-dot"></span><span class="tb-dot"></span><span class="tb-dot"></span>
+    <span class="tb-title" style="margin-left:6px;">Palbox — Palworld Panel</span>
+  </div>
+  <div class="tb-right">
+    <div class="mode-toggle">
+      <button class="active" id="mode-desktop" onclick="setMode('desktop')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        Desktop app
+      </button>
+      <button id="mode-web" onclick="setMode('web')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18 14 14 0 010-18z"/></svg>
+        Browser
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="body-frame">
+<div class="sidebar">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <div class="brand-text">
+      <div class="name">Palbox</div>
+      <div class="sub">palworld ops panel</div>
+    </div>
+  </div>
+
+  <div class="server-picker">
+    <div class="label">Active server</div>
+    <div class="row1">
+      <div class="val"><span class="dot"></span> Islands-01 · :8211</div>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+    <div class="count">2 servers · Cindersands-02 idle</div>
+  </div>
+
+  <nav>
+    <div class="nav-item active" data-view="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-view="players">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Players
+    </div>
+    <div class="nav-item" data-view="backups">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+      Backups
+    </div>
+    <div class="nav-item" data-view="updates">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3.3-6.95"/><path d="M21 3v6h-6"/></svg>
+      Updates
+    </div>
+    <div class="nav-item" data-view="mods">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.4-4.9-2.6-4.9 2.6.9-5.4-4-3.9 5.5-.8z"/></svg>
+      Mods
+    </div>
+    <div class="nav-item" data-view="console">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-5-6-5"/><path d="M12 19h8"/></svg>
+      Console
+    </div>
+    <div class="nav-item" data-view="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </div>
+  </nav>
+
+  <div class="sidebar-foot">
+    <span>v0.1.0</span>
+    <span id="foot-mode">Running as desktop app</span>
+  </div>
+</div>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <section class="view active" id="dashboard">
+    <div class="view-head">
+      <div>
+        <div class="eyebrow">Server status</div>
+        <h1>Islands-01</h1>
+        <p>Running build 20250714 · started 3 days ago on this VPS.</p>
+      </div>
+      <div class="btn-row">
+        <span class="watchdog-chip"><span class="wd-dot"></span>Watchdog armed</span>
+        <button class="btn ghost">Restart</button>
+        <button class="btn danger">Stop server</button>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="status-card">
+        <div class="sphere-wrap">
+          <svg viewBox="0 0 120 120">
+            <circle class="sphere-track" cx="60" cy="60" r="52"/>
+            <circle class="sphere-fill" cx="60" cy="60" r="52"/>
+          </svg>
+          <div class="sphere-core">
+            <div class="state">ONLINE</div>
+            <div class="uptime">3d 07h 12m</div>
+          </div>
+        </div>
+        <div class="status-name">Islands-01</div>
+        <div class="status-sub">45.77.211.9:8211</div>
+        <div class="btn-row">
+          <button class="btn primary" style="flex:1">Save world</button>
+        </div>
+      </div>
+
+      <div class="stat-panel">
+        <div class="row-title">Live metrics</div>
+        <div class="stat-cells">
+          <div class="cell players"><div class="k">Players</div><div class="v">14 / 32</div></div>
+          <div class="cell mem"><div class="k">Memory</div><div class="v">11.2 GB</div></div>
+          <div class="cell cpu"><div class="k">CPU load</div><div class="v">38%</div></div>
+        </div>
+        <div class="row-title" style="margin-bottom:10px;">Online now</div>
+        <div class="players-list">
+          <div class="player-row"><span class="who"><span class="player-avatar a1"></span>Fenrix</span><span class="who"><span class="ping">42ms</span><span class="icon-btn" title="Kick" style="width:24px;height:24px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></span></span></div>
+          <div class="player-row"><span class="who"><span class="player-avatar a2"></span>mira_ok</span><span class="who"><span class="ping">58ms</span><span class="icon-btn" title="Kick" style="width:24px;height:24px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></span></span></div>
+          <div class="player-row"><span class="who"><span class="player-avatar a3"></span>badger</span><span class="who"><span class="ping">21ms</span><span class="icon-btn" title="Kick" style="width:24px;height:24px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Performance, last 24h</div>
+      <div class="chart-wrap">
+        <div class="chart-box">
+          <div class="ck"><span class="sw" style="background:var(--aqua)"></span>Players online</div>
+          <svg viewBox="0 0 260 64" preserveAspectRatio="none">
+            <polyline points="0,50 20,46 40,40 60,38 80,30 100,26 120,22 140,18 160,20 180,16 200,14 220,18 240,16 260,20" fill="none" stroke="var(--aqua)" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="chart-box">
+          <div class="ck"><span class="sw" style="background:var(--ember)"></span>CPU load</div>
+          <svg viewBox="0 0 260 64" preserveAspectRatio="none">
+            <polyline points="0,40 20,36 40,44 60,30 80,34 100,24 120,32 140,20 160,28 180,22 200,30 220,18 240,26 260,22" fill="none" stroke="var(--ember)" stroke-width="2"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Next scheduled backup</div>
+      <div class="row-desc">Nightly auto-backup runs at 04:00 America/New_York · retains the last 7 days on a rolling window.</div>
+      <div class="btn-row">
+        <button class="btn gold">Back up now</button>
+        <button class="btn ghost">View backups →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PLAYERS -->
+  <section class="view" id="players">
+    <div class="view-head">
+      <div>
+        <div class="eyebrow">Players</div>
+        <h1>Roster &amp; moderation</h1>
+        <p>Whitelist, bans, and playtime history — kick/ban actions go out over RCON immediately.</p>
+      </div>
+      <button class="btn primary">Add player</button>
+    </div>
+
+    <div class="panel-section" style="padding:0; overflow:hidden;">
+      <table>
+        <thead><tr><th>Player</th><th>Status</th><th>Playtime</th><th>Last seen</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="mono">Fenrix · 7656119...421</td>
+            <td><span class="tag whitelist">whitelisted</span></td>
+            <td class="mono">142h 20m</td>
+            <td class="mono">Online now</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Kick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
+              <div class="icon-btn" title="Ban"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5 5l14 14"/></svg></div>
+            </div></td>
+          </tr>
+          <tr>
+            <td class="mono">mira_ok · 7656119...118</td>
+            <td><span class="tag whitelist">whitelisted</span></td>
+            <td class="mono">98h 05m</td>
+            <td class="mono">Online now</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Kick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
+              <div class="icon-btn" title="Ban"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5 5l14 14"/></svg></div>
+            </div></td>
+          </tr>
+          <tr>
+            <td class="mono">griefer99 · 7656119...903</td>
+            <td><span class="tag banned">banned</span></td>
+            <td class="mono">4h 40m</td>
+            <td class="mono">Jul 19, 2026</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Unban"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div>
+            </div></td>
+          </tr>
+          <tr>
+            <td class="mono">badger · 7656119...004</td>
+            <td><span class="tag whitelist">whitelisted</span></td>
+            <td class="mono">311h 52m</td>
+            <td class="mono">Online now</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Kick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
+              <div class="icon-btn" title="Ban"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5 5l14 14"/></svg></div>
+            </div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Whitelist mode</div>
+      <div class="row-desc">When on, only players in the roster above can join — everyone else is turned away at the gate.</div>
+      <div class="toggle-row">
+        <div><div class="t">Require whitelist to join</div><div class="d">Recommended once the server is reachable from the public internet</div></div>
+        <div class="switch on"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BACKUPS -->
+  <section class="view" id="backups">
+    <div class="view-head">
+      <div>
+        <div class="eyebrow">Backups</div>
+        <h1>7-day rolling backups</h1>
+        <p>Saves are archived nightly and auto-pruned once older than 7 days. Manual backups count toward the same window.</p>
+      </div>
+      <button class="btn gold">Back up now</button>
+    </div>
+
+    <div class="retention-strip">
+      <div class="seg filled"><div class="d">MON</div><div class="n">Jul 20</div></div>
+      <div class="seg filled"><div class="d">TUE</div><div class="n">Jul 21</div></div>
+      <div class="seg filled"><div class="d">WED</div><div class="n">Jul 22</div></div>
+      <div class="seg filled"><div class="d">THU</div><div class="n">Jul 23</div></div>
+      <div class="seg filled"><div class="d">FRI</div><div class="n">Jul 24</div></div>
+      <div class="seg filled"><div class="d">SAT</div><div class="n">Jul 25</div></div>
+      <div class="seg filled"><div class="d">SUN</div><div class="n">Jul 26</div></div>
+      <div class="seg today"><div class="d">TODAY</div><div class="n">Jul 27</div></div>
+    </div>
+
+    <div class="panel-section" style="padding:0; overflow:hidden;">
+      <table>
+        <thead>
+          <tr><th>Snapshot</th><th>Type</th><th>Size</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">2026-07-27_0400.tar.gz</td>
+            <td><span class="tag auto">auto</span></td>
+            <td class="mono">1.8 GB</td>
+            <td class="mono">Today, 4:00 AM</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div>
+              <div class="icon-btn" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+            </div></td>
+          </tr>
+          <tr>
+            <td class="mono">2026-07-26_2114.tar.gz</td>
+            <td><span class="tag manual">manual</span></td>
+            <td class="mono">1.8 GB</td>
+            <td class="mono">Yesterday, 9:14 PM</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div>
+              <div class="icon-btn" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+            </div></td>
+          </tr>
+          <tr>
+            <td class="mono">2026-07-26_0400.tar.gz</td>
+            <td><span class="tag auto">auto</span></td>
+            <td class="mono">1.7 GB</td>
+            <td class="mono">Yesterday, 4:00 AM</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div>
+              <div class="icon-btn" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+            </div></td>
+          </tr>
+          <tr>
+            <td class="mono">2026-07-20_0400.tar.gz</td>
+            <td><span class="tag auto">auto</span></td>
+            <td class="mono">1.6 GB</td>
+            <td class="mono">Jul 20, 4:00 AM</td>
+            <td><div class="row-actions">
+              <div class="icon-btn" title="Restore"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div>
+              <div class="icon-btn" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+            </div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- UPDATES -->
+  <section class="view" id="updates">
+    <div class="view-head">
+      <div>
+        <div class="eyebrow">SteamCMD updates</div>
+        <h1>Server build</h1>
+        <p>Checked against Steam every 30 minutes. Updating stops the server, saves via RCON, runs SteamCMD, then restarts.</p>
+      </div>
+    </div>
+
+    <div class="update-banner">
+      <div class="left">
+        <span class="pulse-dot"></span>
+        <div>
+          <div class="title">Update available</div>
+          <div class="desc">buildid 20250714 → 20250721 · checked 4 minutes ago</div>
+        </div>
+      </div>
+      <button class="btn violet">Update &amp; restart</button>
+    </div>
+
+    <div class="build-compare">
+      <div class="build-box">
+        <div class="k">Installed</div>
+        <div class="id">20250714</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="build-box new">
+        <div class="k">Latest on Steam</div>
+        <div class="id">20250721</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Update history</div>
+      <div class="history-item"><span class="hdot"></span> Updated to 20250714 <span class="ht">Jul 14, 4:12 AM</span></div>
+      <div class="history-item"><span class="hdot"></span> Updated to 20250702 <span class="ht">Jul 2, 4:08 AM</span></div>
+      <div class="history-item"><span class="hdot"></span> Updated to 20250619 <span class="ht">Jun 19, 4:15 AM</span></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Scheduled restarts</div>
+      <div class="row-desc">Separate from update/backup restarts — a plain periodic restart to clear up memory, with a player warning first.</div>
+      <div class="form-grid">
+        <div class="field"><label>Frequency</label><select><option>Daily</option><option>Every 12 hours</option><option>Weekly</option><option>Off</option></select></div>
+        <div class="field"><label>Time</label><input value="06:00 America/New_York" /></div>
+      </div>
+      <div class="row-desc" style="margin-top:14px; margin-bottom:0;">Next scheduled restart: <span class="mono" style="color:var(--violet);">Today, 6:00 AM</span></div>
+    </div>
+  </section>
+
+  <!-- MODS -->
+  <section class="view" id="mods">
+    <div class="view-head">
+      <div>
+        <div class="eyebrow">Mods</div>
+        <h1>UE4SS mod manager</h1>
+        <p>Enable, disable, and install mods without touching the file system directly.</p>
+      </div>
+      <button class="btn ghost" style="border-color:rgba(63,216,180,0.4); color:var(--teal);">Upload mod .zip</button>
+    </div>
+
+    <div class="update-banner" style="background:rgba(63,216,180,0.08); border-color:rgba(63,216,180,0.4);">
+      <div class="left">
+        <span class="pulse-dot" style="background:var(--teal); box-shadow:0 0 0 0 rgba(63,216,180,0.6);"></span>
+        <div>
+          <div class="title">UE4SS installed &amp; loading</div>
+          <div class="desc">v3.0.1 · loader hooked into PalServer-Win64-Shipping.exe</div>
+        </div>
+      </div>
+      <button class="btn ghost">Reinstall loader</button>
+    </div>
+
+    <div class="panel-section" style="padding:0; overflow:hidden;">
+      <table>
+        <thead><tr><th>Mod</th><th>Version</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Enhanced Base Building</td>
+            <td class="mono">2.4.0</td>
+            <td><span class="tag enabled">enabled</span></td>
+            <td><div class="row-actions"><div class="icon-btn" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></div></div></td>
+          </tr>
+          <tr>
+            <td>QoL Inventory Sort</td>
+            <td class="mono">1.1.3</td>
+            <td><span class="tag enabled">enabled</span></td>
+            <td><div class="row-actions"><div class="icon-btn" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></div></div></td>
+          </tr>
+          <tr>
+            <td>Higher Pal Cap</td>
+            <td class="mono">0.9.2</td>
+            <td><span class="tag disabled">disabled</span></td>
+            <td><div class="row-actions"><div class="icon-btn" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></div></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Compatibility</div>
+      <div class="row-desc">Mods are checked against the installed server build (20250714) before enabling — a mismatch here is the most common cause of a mod-related crash after an update.</div>
+    </div>
+  </section>
+
+  <!-- CONSOLE -->
+  <section class="view" id="console">
+    <div class="view-head">
+      <div>
+        <div class="eyebrow">Live console</div>
+        <h1>Server log</h1>
+        <p>Streaming stdout over WebSocket. Send RCON commands directly from the bar below.</p>
+      </div>
+      <button class="btn ghost">Clear</button>
+    </div>
+
+    <div class="console">
+      <div class="ln"><span class="ts">21:41:02</span><span class="lvl sys">SYS</span><span class="msg">World autosave complete (1.8s)</span></div>
+      <div class="ln"><span class="ts">21:41:14</span><span class="lvl info">INFO</span><span class="msg">Player 'mira_ok' joined the server</span></div>
+      <div class="ln"><span class="ts">21:42:37</span><span class="lvl info">INFO</span><span class="msg">Player 'Fenrix' caught a Foxparks (lvl 14)</span></div>
+      <div class="ln"><span class="ts">21:44:09</span><span class="lvl warn">WARN</span><span class="msg">Frame time spike: 118ms (guild base render, Pal Box x40)</span></div>
+      <div class="ln"><span class="ts">21:46:00</span><span class="lvl sys">SYS</span><span class="msg">RCON: Broadcast("Server restarting in 15 minutes for update")</span></div>
+      <div class="ln"><span class="ts">21:50:22</span><span class="lvl info">INFO</span><span class="msg">Player 'badger' left the server</span></div>
+      <div class="ln"><span class="ts">21:51:02</span><span class="lvl sys">SYS</span><span class="msg">World autosave complete (2.1s)</span></div>
+    </div>
+    <div class="cmd-bar">
+      <input type="text" placeholder="Send RCON command, e.g. Broadcast Server restarting soon" />
+      <button class="btn aqua">Send</button>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" id="settings">
+    <div class="view-head">
+      <div>
+        <div class="eyebrow">Configuration</div>
+        <h1>PalWorldSettings.ini</h1>
+        <p>Every field below writes straight to the server's ini and flags a restart when a change needs one.</p>
+      </div>
+      <button class="btn ghost raw-toggle-btn" id="raw-toggle" onclick="toggleRaw()">Raw .ini mode</button>
+    </div>
+
+    <div class="settings-body" id="settings-body">
+      <div class="settings-tabs">
+        <div class="stab active" data-tab="world" onclick="setTab('world')"><span class="sw"></span>World</div>
+        <div class="stab" data-tab="rates" onclick="setTab('rates')"><span class="sw"></span>Rates &amp; difficulty</div>
+        <div class="stab" data-tab="multiplayer" onclick="setTab('multiplayer')"><span class="sw"></span>Multiplayer</div>
+        <div class="stab" data-tab="combat" onclick="setTab('combat')"><span class="sw"></span>Pals &amp; combat</div>
+        <div class="stab" data-tab="building" onclick="setTab('building')"><span class="sw"></span>Building</div>
+      </div>
+
+      <div class="stab-panel active" id="tab-world">
+        <div class="panel-section">
+          <div class="row-title">World</div>
+          <div class="form-grid">
+            <div class="field"><label>Server name</label><input value="Islands-01" /></div>
+            <div class="field"><label>Server description</label><input value="Long Island crew, PvE, whitelist" /></div>
+            <div class="field"><label>Server password</label><input type="password" value="••••••••" /></div>
+            <div class="field"><label>Admin password</label><input type="password" value="••••••••" /></div>
+            <div class="field"><label>Day time speed rate</label><input value="1.000000" /><span class="hint">Multiplier, default 1.0</span></div>
+            <div class="field"><label>Night time speed rate</label><input value="1.000000" /></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stab-panel" id="tab-rates">
+        <div class="panel-section">
+          <div class="row-title">Difficulty</div>
+          <div class="form-grid">
+            <div class="field"><label>Difficulty preset</label><select><option>Normal</option><option>Hard</option><option>Custom</option></select></div>
+            <div class="field"><label>Death penalty</label><select><option>None</option><option>Item</option><option>ItemAndEquipment</option><option>All</option></select></div>
+          </div>
+        </div>
+        <div class="panel-section">
+          <div class="row-title">Rates</div>
+          <div class="form-grid">
+            <div class="field"><label>EXP rate</label><input value="1.000000" /></div>
+            <div class="field"><label>Pal capture rate</label><input value="1.000000" /></div>
+            <div class="field"><label>Pal appearance rate</label><input value="1.000000" /></div>
+            <div class="field"><label>Pal damage rate (attack)</label><input value="1.000000" /></div>
+            <div class="field"><label>Pal damage rate (taken)</label><input value="1.000000" /></div>
+            <div class="field"><label>Player hunger depletion rate</label><input value="1.000000" /></div>
+            <div class="field"><label>Player stamina reduction rate</label><input value="1.000000" /></div>
+            <div class="field"><label>Building material drop rate</label><input value="1.000000" /></div>
+            <div class="field"><label>Collection drop rate</label><input value="1.000000" /></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stab-panel" id="tab-multiplayer">
+        <div class="panel-section">
+          <div class="row-title">Multiplayer</div>
+          <div class="form-grid">
+            <div class="field"><label>Max players</label><input value="32" /></div>
+            <div class="field"><label>Server port</label><input value="8211" /></div>
+            <div class="field"><label>Public IP</label><input value="45.77.211.9" /></div>
+            <div class="field"><label>RCON port</label><input value="25575" /></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">Multiplayer enabled</div><div class="d">Turn off to run as a solo/local world</div></div>
+            <div class="switch on"></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">RCON enabled</div><div class="d">Required for Palbox's console tab and graceful restarts</div></div>
+            <div class="switch on"></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">Use auth server (Steam/anti-cheat)</div><div class="d">Recommended if the panel is reachable from the public internet</div></div>
+            <div class="switch on"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stab-panel" id="tab-combat">
+        <div class="panel-section">
+          <div class="row-title">PvP &amp; loss rules</div>
+          <div class="toggle-row">
+            <div><div class="t">PvP</div><div class="d">Players can damage each other</div></div>
+            <div class="switch"></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">Friendly fire</div><div class="d">Guild members can damage each other</div></div>
+            <div class="switch"></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">Drop items on death</div><div class="d">Applies on top of the death penalty setting</div></div>
+            <div class="switch on"></div>
+          </div>
+        </div>
+        <div class="panel-section">
+          <div class="row-title">Pals</div>
+          <div class="form-grid">
+            <div class="field"><label>Max pals per base</label><input value="15" /></div>
+            <div class="field"><label>Pal egg default hatching time</label><input value="1.000000" /></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">Allow global Pal Box export/import</div><div class="d">Lets players move Pals between bases anywhere on the map</div></div>
+            <div class="switch on"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stab-panel" id="tab-building">
+        <div class="panel-section">
+          <div class="row-title">Building &amp; bases</div>
+          <div class="form-grid">
+            <div class="field"><label>Base camp worker max count</label><input value="15" /></div>
+            <div class="field"><label>Max building limit num</label><input value="0" /><span class="hint">0 = unlimited</span></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">Enable predator boss pals</div><div class="d">Stronger alpha spawns near bases</div></div>
+            <div class="switch on"></div>
+          </div>
+          <div class="toggle-row">
+            <div><div class="t">Build area limit</div><div class="d">Restrict construction to a radius around the base flag</div></div>
+            <div class="switch on"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="raw-editor" id="raw-editor">
+      <textarea class="raw-textarea">[/Script/Pal.PalGameWorldSettings]
+OptionSettings=(Difficulty=None,DayTimeSpeedRate=1.000000,NightTimeSpeedRate=1.000000,
+ExpRate=1.000000,PalCaptureRate=1.000000,PalSpawnNumRate=1.000000,
+PalDamageRateAttack=1.000000,PalDamageRateDefense=1.000000,
+PlayerDamageRateAttack=1.000000,PlayerDamageRateDefense=1.000000,
+PlayerStomachDecreaceRate=1.000000,PlayerStaminaDecreaceRate=1.000000,
+BuildObjectDamageRate=1.000000,CollectionDropRate=1.000000,
+bEnablePlayerToPlayerDamage=False,bEnableFriendlyFire=False,
+bEnableInvaderEnemy=True,DeathPenalty=None,bEnableAimAssistPad=True,
+ServerPlayerMaxNum=32,ServerName="Islands-01",ServerDescription="Long Island crew, PvE, whitelist",
+AdminPassword="",ServerPassword="",PublicPort=8211,PublicIP="45.77.211.9",
+RCONEnabled=True,RCONPort=25575,Region="",bUseAuth=True,BanListURL="")</textarea>
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn aqua">Save raw .ini</button>
+        <button class="btn ghost">Revert</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Automation</div>
+      <div class="toggle-row">
+        <div><div class="t">Crash detection &amp; auto-restart</div><div class="d">If the process dies unexpectedly, restart it and log the reason</div></div>
+        <div class="switch on"></div>
+      </div>
+      <div class="toggle-row">
+        <div><div class="t">Auto-update on new build</div><div class="d">Otherwise you'll just get a notification to update manually</div></div>
+        <div class="switch"></div>
+      </div>
+      <div class="toggle-row">
+        <div><div class="t">Warn players before restart</div><div class="d">Broadcasts a countdown via RCON before any stop/update/scheduled restart</div></div>
+        <div class="switch on"></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Discord notifications</div>
+      <div class="row-desc">Posts to a Discord channel via webhook — no bot required.</div>
+      <div class="form-grid" style="margin-bottom:16px;">
+        <div class="field" style="grid-column:1/-1;"><label>Webhook URL</label><input value="https://discord.com/api/webhooks/••••••••/••••••••" /></div>
+      </div>
+      <div class="toggle-row"><div><div class="t">Server went offline / crashed</div></div><div class="switch on"></div></div>
+      <div class="toggle-row"><div><div class="t">Backup failed</div></div><div class="switch on"></div></div>
+      <div class="toggle-row"><div><div class="t">Update completed</div></div><div class="switch on"></div></div>
+      <div class="toggle-row"><div><div class="t">Player joined / left</div></div><div class="switch"></div></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Application</div>
+      <div class="row-desc">This same panel runs as a background service on the VPS — reachable from a browser at panel.yourdomain.com, or as a native window when you're on the box itself.</div>
+      <div class="toggle-row">
+        <div><div class="t">Launch at system startup</div><div class="d">Starts the desktop app automatically after the VPS boots</div></div>
+        <div class="switch on"></div>
+      </div>
+      <div class="toggle-row">
+        <div><div class="t">Minimize to tray</div><div class="d">Closing the window keeps Palbox running in the background</div></div>
+        <div class="switch on"></div>
+      </div>
+      <div class="toggle-row">
+        <div><div class="t">Desktop notifications</div><div class="d">Backup failures, update completions, and player join/leave alerts</div></div>
+        <div class="switch"></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="row-title">Danger zone</div>
+      <div class="btn-row">
+        <button class="btn danger">Wipe world &amp; restart fresh</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+</div>
+
+<script>
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      item.classList.add('active');
+      document.getElementById(item.dataset.view).classList.add('active');
+    });
+  });
+  document.querySelectorAll('.switch').forEach(s => {
+    s.addEventListener('click', () => s.classList.toggle('on'));
+  });
+
+  function setMode(mode){
+    const titlebar = document.getElementById('titlebar');
+    const foot = document.getElementById('foot-mode');
+    document.getElementById('mode-desktop').classList.toggle('active', mode === 'desktop');
+    document.getElementById('mode-web').classList.toggle('active', mode === 'web');
+    if(mode === 'desktop'){
+      titlebar.classList.add('show');
+      foot.textContent = 'Running as desktop app';
+    } else {
+      titlebar.classList.remove('show');
+      foot.textContent = 'panel.yourdomain.com';
+    }
+  }
+
+  function setTab(tab){
+    document.querySelectorAll('.stab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.stab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+  }
+
+  function toggleRaw(){
+    const body = document.getElementById('settings-body');
+    const raw = document.getElementById('raw-editor');
+    const btn = document.getElementById('raw-toggle');
+    const isRaw = raw.classList.toggle('show');
+    body.classList.toggle('raw-mode', isRaw);
+    btn.classList.toggle('active', isRaw);
+    btn.textContent = isRaw ? 'Back to form mode' : 'Raw .ini mode';
+  }
+</script>
+
+</body>
+</html>

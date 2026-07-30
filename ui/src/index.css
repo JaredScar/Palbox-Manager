@@ -1,0 +1,233 @@
+@import "tailwindcss";
+
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+@theme {
+  /* Colors */
+  --color-void:       #120f1c;
+  --color-panel:      #1c1832;
+  --color-panel-raised: #26213f;
+  --color-line:       #392f5a;
+  --color-crimson:    #ff5d73;
+  --color-cream:      #ffe9c7;
+  --color-ember:      #ff9d3d;
+  --color-aqua:       #2fd9e8;
+  --color-lime:       #7ce666;
+  --color-gold:       #ffd447;
+  --color-violet:     #b27cf2;
+  --color-teal:       #3fd8b4;
+  --color-rust:       #ff5c5c;
+  --color-fog:        #a79fc7;
+  --color-bone:       #f3effc;
+  --color-bone-dim:   #c6bfe2;
+
+  /* Fonts */
+  --font-sans:    'Inter', ui-sans-serif, sans-serif;
+  --font-display: 'Space Grotesk', ui-sans-serif, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+
+  /* Custom animations */
+  --animate-spin-slow: spin 1.4s linear infinite;
+  --animate-pulse-dot: pulse-dot 1.8s ease-in-out infinite;
+}
+
+/* ── Keep legacy CSS vars for inline styles / SVG strokes ──────────────────── */
+:root {
+  --void:       #120f1c;
+  --panel:      #1c1832;
+  --panel-raised: #26213f;
+  --line:       #392f5a;
+  --crimson:    #ff5d73;
+  --cream:      #ffe9c7;
+  --ember:      #ff9d3d;
+  --aqua:       #2fd9e8;
+  --lime:       #7ce666;
+  --gold:       #ffd447;
+  --violet:     #b27cf2;
+  --teal:       #3fd8b4;
+  --rust:       #ff5c5c;
+  --fog:        #a79fc7;
+  --bone:       #f3effc;
+  --bone-dim:   #c6bfe2;
+}
+
+/* ── Theme: Emerald (green) ──────────────────────────────────────────────── */
+[data-theme="emerald"] {
+  --void:        #0b1a14;
+  --panel:       #0f2519;
+  --panel-raised:#163220;
+  --line:        #1f4d2f;
+  --crimson:     #ff5d73;
+  --cream:       #d8f5e2;
+  --ember:       #ffbe3d;
+  --aqua:        #2fd9e8;
+  --lime:        #7ce666;
+  --gold:        #ffd447;
+  --violet:      #4ade80;
+  --teal:        #3fd8b4;
+  --rust:        #ff5c5c;
+  --fog:         #7dcea0;
+  --bone:        #e8f9ef;
+  --bone-dim:    #a0cfb4;
+}
+
+/* ── Theme: Ocean (blue) ─────────────────────────────────────────────────── */
+[data-theme="ocean"] {
+  --void:        #080f1e;
+  --panel:       #0d1a35;
+  --panel-raised:#122048;
+  --line:        #1c3460;
+  --crimson:     #f25a7d;
+  --cream:       #c8e0ff;
+  --ember:       #ff9d3d;
+  --aqua:        #2fd9e8;
+  --lime:        #7ce666;
+  --gold:        #ffd447;
+  --violet:      #60a5fa;
+  --teal:        #3fd8b4;
+  --rust:        #ff5c5c;
+  --fog:         #7daed4;
+  --bone:        #ddefff;
+  --bone-dim:    #8ab4d8;
+}
+
+/* ── Theme: Crimson (red) ────────────────────────────────────────────────── */
+[data-theme="crimson"] {
+  --void:        #1a0a0b;
+  --panel:       #2b1115;
+  --panel-raised:#3a151a;
+  --line:        #5e2229;
+  --crimson:     #ff5d73;
+  --cream:       #ffe0e0;
+  --ember:       #ff9d3d;
+  --aqua:        #ff8c94;
+  --lime:        #ff6b6b;
+  --gold:        #ffd447;
+  --violet:      #ff5d73;
+  --teal:        #ff9d3d;
+  --rust:        #ff5c5c;
+  --fog:         #d47a82;
+  --bone:        #ffe8e8;
+  --bone-dim:    #d4a0a0;
+}
+
+/* ── Theme: High Contrast ────────────────────────────────────────────────── */
+[data-theme="contrast"] {
+  --void:        #000000;
+  --panel:       #111111;
+  --panel-raised:#1c1c1c;
+  --line:        #333333;
+  --crimson:     #ff4466;
+  --cream:       #ffffff;
+  --ember:       #ffaa00;
+  --aqua:        #00eeff;
+  --lime:        #44ff88;
+  --gold:        #ffdd00;
+  --violet:      #cc88ff;
+  --teal:        #00ffcc;
+  --rust:        #ff4444;
+  --fog:         #aaaaaa;
+  --bone:        #ffffff;
+  --bone-dim:    #cccccc;
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  background: var(--void);
+  background-image:
+    radial-gradient(ellipse 60% 50% at 15% 90%, rgba(178,124,242,0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 85% 10%, rgba(47,217,232,0.05) 0%, transparent 70%);
+  color: var(--bone);
+  font-family: theme(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: theme(--color-crimson); color: theme(--color-void); }
+
+/* ── Focus ring ─────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid rgba(124, 230, 102, 0.5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────────────────*/
+input, select, textarea {
+  background: theme(--color-panel-raised);
+  border: 1px solid theme(--color-line);
+  border-radius: 8px;
+  color: theme(--color-bone);
+  font-family: theme(--font-sans);
+  padding: 0.5rem 0.75rem;
+  font-size: 13px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: rgba(178, 124, 242, 0.55);
+  box-shadow: 0 0 0 3px rgba(178, 124, 242, 0.12);
+}
+input::placeholder, textarea::placeholder { color: theme(--color-fog); opacity: 0.6; }
+select option { background: theme(--color-panel-raised); }
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: theme(--color-line); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4a4076; }
+
+/* ── Keyframes ─────────────────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse-dot {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  70%  { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ── Table row hover ─────────────────────────────────────────────────────────*/
+tbody tr {
+  transition: background 0.1s;
+}
+tbody tr:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+/* ── Brand mark (Pokéball-ish shape, needs pseudo-elements) ────────────────── */
+.brand-mark {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: theme(--color-crimson);
+  position: relative; flex-shrink: 0;
+  border: 2px solid #1a1428; overflow: hidden;
+}
+.brand-mark::before {
+  content: '';
+  position: absolute; left: -2px; right: -2px; bottom: -2px;
+  height: 50%;
+  background: theme(--color-cream);
+  border-top: 2px solid #1a1428;
+}
+.brand-mark::after {
+  content: '';
+  position: absolute; top: 50%; left: 50%;
+  width: 9px; height: 9px;
+  background: theme(--color-bone);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid #1a1428;
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────────*/
+.btn-spinner {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25);
+  border-top-color: currentColor;
+  animation: spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Pulse dot ───────────────────────────────────────────────────────────────*/
+.pulse-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: currentColor;
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}

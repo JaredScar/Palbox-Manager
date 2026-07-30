@@ -1,0 +1,84 @@
+{
+  "name": "@palbox/electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsc -w",
+    "build": "tsc && electron-builder",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron-log": "^5.1.1",
+    "electron-updater": "^6.1.7"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.0"
+  },
+  "build": {
+    "appId": "com.palbox.panel",
+    "productName": "Palbox",
+    "copyright": "Copyright © 2025 Palbox contributors",
+    "directories": {
+      "output": "out",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../api/dist",
+        "to": "api/dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../api/node_modules",
+        "to": "api/node_modules",
+        "filter": ["**/*", "!.cache/**", "!*.map"]
+      },
+      {
+        "from": "../ui/dist",
+        "to": "ui/dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../.env.example",
+        "to": ".env.example"
+      },
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "Palbox-Setup-${version}.${ext}",
+      "publisherName": "Palbox",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Palbox",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "installerSidebar": "build/installer-sidebar.bmp"
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  }
+}

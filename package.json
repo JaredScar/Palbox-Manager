@@ -1,0 +1,19 @@
+{
+  "name": "palbox",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "api",
+    "ui",
+    "electron"
+  ],
+  "scripts": {
+    "dev": "concurrently -n API,UI -c cyan,magenta \"npm run dev --workspace=api\" \"npm run dev --workspace=ui\"",
+    "build": "npm run build --workspace=ui && npm run build --workspace=api",
+    "electron:dev": "concurrently -n API,UI,ELECTRON -c cyan,magenta,yellow \"npm run dev --workspace=api\" \"npm run dev --workspace=ui\" \"npm run dev --workspace=electron\"",
+    "electron:build": "npm run build && npm run build --workspace=electron"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

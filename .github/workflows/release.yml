@@ -1,0 +1,218 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'   # pre-releases: v1.2.3-beta.1
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # needed to create releases and upload assets
+
+jobs:
+  release:
+    name: Build & publish release
+    runs-on: windows-latest
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Toolchain ─────────────────────────────────────────────────────────────
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # ── Install ───────────────────────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Build UI + API ────────────────────────────────────────────────────────
+      - name: Build UI
+        run: npm run build --workspace=ui
+
+      - name: Build API
+        run: npm run build --workspace=api
+
+      # ── Derive version from tag ───────────────────────────────────────────────
+      - name: Set version variable
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          # Strip leading 'v' for artifact filenames
+          $ver = $tag.TrimStart('v')
+          echo "TAG=$tag"   >> $env:GITHUB_OUTPUT
+          echo "VER=$ver"   >> $env:GITHUB_OUTPUT
+          Write-Host "Tag: $tag   Version: $ver"
+
+      # ── Electron NSIS installer ───────────────────────────────────────────────
+      # electron-builder reads the version from electron/package.json; we sync it
+      # from the git tag so the .exe filename matches the release.
+      - name: Sync version into electron/package.json
+        shell: pwsh
+        run: |
+          $pkgPath = "electron/package.json"
+          $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+          $pkg.version = "${{ steps.version.outputs.VER }}"
+          $pkg | ConvertTo-Json -Depth 32 | Set-Content $pkgPath -Encoding UTF8
+          Write-Host "electron/package.json version → $($pkg.version)"
+
+      - name: Build Electron desktop installer (NSIS)
+        shell: pwsh
+        run: |
+          # electron-builder must run from the electron workspace directory
+          # because it resolves extraResources relative to the package.json
+          Set-Location electron
+          npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Locate Electron installer
+        id: electron-artifact
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path "electron/out" -Filter "*.exe" -Recurse |
+                 Where-Object { $_.Name -match "Setup" } |
+                 Select-Object -First 1
+          if (-not $exe) { Write-Error "No NSIS .exe found in electron/out/"; exit 1 }
+          echo "PATH=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Electron installer: $($exe.FullName)"
+
+      # ── Server ZIP package ────────────────────────────────────────────────────
+      - name: Stage server package
+        shell: pwsh
+        run: |
+          $ver  = "${{ steps.version.outputs.VER }}"
+          $dest = "staging\palbox-server-$ver"
+
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+
+          # API compiled output
+          Copy-Item -Recurse -Force api\dist      "$dest\api-dist"
+          Copy-Item -Recurse -Force api\node_modules "$dest\node_modules"
+
+          # UI static files (the API will serve these)
+          Copy-Item -Recurse -Force ui\dist       "$dest\ui-dist"
+
+          # Config template & installer scripts
+          Copy-Item -Force .env.example           "$dest\.env.example"
+          Copy-Item -Force scripts\Install-Palbox.ps1   "$dest\Install-Palbox.ps1"
+          Copy-Item -Force scripts\Uninstall-Palbox.ps1 "$dest\Uninstall-Palbox.ps1"
+
+          # Write a quick README for the ZIP
+          @"
+# Palbox Server Package v$ver
+
+## Quick setup
+1. Extract this ZIP to a temporary folder.
+2. Open PowerShell **as Administrator** in that folder.
+3. Run:  ``.\Install-Palbox.ps1``
+
+The script will check prerequisites, prompt for your paths,
+write a .env file, and register a Windows service via NSSM.
+
+## Requirements
+- Windows 10 / Server 2019 or newer
+- Node.js 22+   https://nodejs.org
+- NSSM          https://nssm.cc/download  (extract nssm.exe to a folder on PATH)
+
+## Manual start (without NSSM)
+  cd api-dist
+  node index.js
+
+## Uninstall
+  .\Uninstall-Palbox.ps1 -RemoveFiles
+"@ | Set-Content "$dest\README-server.txt" -Encoding UTF8
+
+          Write-Host "Staged to $dest"
+          echo "STAGE=$dest" >> $env:GITHUB_OUTPUT
+
+      - name: Create server ZIP
+        id: server-zip
+        shell: pwsh
+        run: |
+          $ver     = "${{ steps.version.outputs.VER }}"
+          $stage   = "staging\palbox-server-$ver"
+          $zipName = "palbox-server-$ver.zip"
+
+          Compress-Archive -Path "$stage\*" -DestinationPath $zipName -CompressionLevel Optimal
+          Write-Host "Created $zipName ($('{0:N2}' -f ((Get-Item $zipName).Length / 1MB)) MB)"
+          echo "PATH=$zipName" >> $env:GITHUB_OUTPUT
+
+      # ── Generate release notes ─────────────────────────────────────────────────
+      - name: Generate release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.version.outputs.VER }}"
+          $tag = "${{ steps.version.outputs.TAG }}"
+          $isPrerelease = $tag -match '-'
+
+          $notes = @"
+          ## Palbox $tag
+
+          Self-hosted Palworld server management panel.
+
+          ### Downloads
+
+          | File | Description |
+          |------|-------------|
+          | ``Palbox-Setup-$ver.exe`` | **Desktop installer** (Windows x64). Electron app that bundles the full panel and launches the API automatically. Requires Node.js 22+ on the target machine. |
+          | ``palbox-server-$ver.zip`` | **Headless server package**. Extract and run ``Install-Palbox.ps1`` as Administrator to set up the panel as a Windows service via NSSM. |
+
+          ### Requirements
+          - Windows 10 / Server 2019 or newer (x64)
+          - [Node.js 22+](https://nodejs.org)
+          - [NSSM](https://nssm.cc/download) *(server ZIP only — for Windows service registration)*
+
+          ### First-time setup (server ZIP)
+          ```powershell
+          # 1. Extract palbox-server-$ver.zip
+          # 2. Open PowerShell as Administrator
+          .\Install-Palbox.ps1
+          # Follow the prompts — the script writes .env and registers the service.
+          ```
+
+          ### Upgrading from a previous version
+          ```powershell
+          nssm stop PalboxAPI
+          # Overwrite api-dist/ and node_modules/ with the new package contents,
+          # keeping your existing .env file.
+          nssm start PalboxAPI
+          ```
+          "@
+
+          $notes | Set-Content release-notes.md -Encoding UTF8
+          echo "PRERELEASE=$($isPrerelease.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      # ── Create GitHub Release ──────────────────────────────────────────────────
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag  = "${{ steps.version.outputs.TAG }}"
+          $zip  = "${{ steps.server-zip.outputs.PATH }}"
+          $exe  = "${{ steps.electron-artifact.outputs.PATH }}"
+          $pre  = "${{ steps.notes.outputs.PRERELEASE }}"
+
+          $preFlag = if ($pre -eq 'true') { '--prerelease' } else { '' }
+
+          gh release create $tag `
+            --title "Palbox $tag" `
+            --notes-file release-notes.md `
+            $preFlag `
+            $zip `
+            $exe
+
+          Write-Host "✓ Release $tag created."
