@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useInstance } from '../context/InstanceContext';
 import { Button } from '../components/ui/Button';
 import { Switch } from '../components/ui/Switch';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { PanelSection, ToggleRow } from '../components/ui/PanelSection';
 import { cn } from '../lib/cn';
-import type { AlertRule, BroadcastSchedule, UserAccount } from '../api/client';
-import { authApi } from '../api/client';
+import type { AlertRule, BroadcastSchedule, UserAccount, Instance } from '../api/client';
+import { authApi, instanceApi } from '../api/client';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
 
 /* ── Alert rules sub-section ──────────────────────────────────────────────── */
@@ -373,6 +373,7 @@ export function Settings() {
         </ToggleRow>
       </PanelSection>
 
+      <InstancesSection />
       <AlertRulesSection />
       <BroadcastSection />
       <UserManagementSection />
@@ -553,6 +554,141 @@ function UserManagementSection() {
         </>
       )}
     </PanelSection>
+  );
+}
+
+/* ── Instance management ──────────────────────────────────────────────────── */
+const BLANK_INSTANCE: Partial<Instance> = {
+  name: '', service_name: '', exe_path: '', save_dir: '', backup_dir: '',
+  settings_ini: '', log_file: '', rcon_host: '127.0.0.1', rcon_port: 25575,
+  rcon_password: '', public_ip: '', game_port: 8211, steamcmd_exe: '', mods_dir: '',
+};
+
+function InstanceField({ label, field, form, set, type = 'text', placeholder }: {
+  label: string; field: keyof Instance; form: Partial<Instance>;
+  set: (f: keyof Instance, v: string | number) => void;
+  type?: string; placeholder?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10.5px] uppercase tracking-[0.09em] text-fog font-semibold">{label}</label>
+      <input
+        type={type}
+        placeholder={placeholder}
+        value={(form[field] as string | number) ?? ''}
+        onChange={(e) => set(field, type === 'number' ? Number(e.target.value) : e.target.value)}
+      />
+    </div>
+  );
+}
+
+function InstanceForm({ initial, onSave, onCancel, saving }: {
+  initial: Partial<Instance>;
+  onSave: (data: Partial<Instance>) => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  const [form, setForm] = useState<Partial<Instance>>(initial);
+  const set = (f: keyof Instance, v: string | number) => setForm((p) => ({ ...p, [f]: v }));
+
+  return (
+    <div className="rounded-xl border border-line/60 bg-panel-raised p-5 flex flex-col gap-5 mt-3">
+      <div className="grid grid-cols-2 gap-4">
+        <InstanceField label="Display name"          field="name"         form={form} set={set} placeholder="My Palworld Server" />
+        <InstanceField label="Windows service name"  field="service_name" form={form} set={set} placeholder="PalServer" />
+        <InstanceField label="PalServer.exe path"    field="exe_path"     form={form} set={set} placeholder="C:\PalServer\Pal\Binaries\Win64\PalServer-Win64-Shipping-Cmd.exe" />
+        <InstanceField label="PalWorldSettings.ini"  field="settings_ini" form={form} set={set} placeholder="C:\PalServer\Pal\Saved\Config\WindowsServer\PalWorldSettings.ini" />
+        <InstanceField label="Save data directory"   field="save_dir"     form={form} set={set} placeholder="C:\PalServer\Pal\Saved" />
+        <InstanceField label="Backup output dir"     field="backup_dir"   form={form} set={set} placeholder="C:\PalboxBackups" />
+        <InstanceField label="Log file path"         field="log_file"     form={form} set={set} placeholder="C:\PalServer\Pal\Saved\Logs\PalServer.log" />
+        <InstanceField label="Mods directory"        field="mods_dir"     form={form} set={set} placeholder="C:\PalServer\Pal\Binaries\Win64\Mods" />
+        <InstanceField label="SteamCMD path"         field="steamcmd_exe" form={form} set={set} placeholder="C:\steamcmd\steamcmd.exe" />
+        <InstanceField label="Public IP"             field="public_ip"    form={form} set={set} placeholder="0.0.0.0" />
+        <InstanceField label="Game port"             field="game_port"    form={form} set={set} type="number" placeholder="8211" />
+        <InstanceField label="RCON host"             field="rcon_host"    form={form} set={set} placeholder="127.0.0.1" />
+        <InstanceField label="RCON port"             field="rcon_port"    form={form} set={set} type="number" placeholder="25575" />
+        <InstanceField label="RCON password"         field="rcon_password" form={form} set={set} type="password" />
+      </div>
+      <div className="flex gap-2 pt-1 border-t border-line/40">
+        <Button variant="aqua" loading={saving} onClick={() => onSave(form)}>Save server</Button>
+        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+function InstancesSection() {
+  const { instances, setActiveId, reload } = useInstance();
+  const [editing, setEditing] = useState<number | 'new' | null>(null);
+  const [saving, setSaving] = useState(false);
+  const sectionRef = useRef<HTMLDivElement>(null);
+
+  // Scroll into view when navigated via "Add server" sidebar link
+  useEffect(() => {
+    if (window.location.hash === '#instances') {
+      sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setEditing('new');
+    }
+  }, []);
+
+  async function save(data: Partial<Instance>) {
+    if (!data.name?.trim()) { alert('Display name is required.'); return; }
+    setSaving(true);
+    try {
+      if (editing === 'new') {
+        const created = await instanceApi.create(data);
+        setActiveId(created.id);
+      } else if (typeof editing === 'number') {
+        await instanceApi.update(editing, data);
+      }
+      await reload();
+      setEditing(null);
+    } catch (e) { alert((e as Error).message); }
+    setSaving(false);
+  }
+
+  async function del(id: number) {
+    if (!confirm('Remove this server from Palbox? (Does not delete any files.)')) return;
+    try { await instanceApi.delete(id); await reload(); } catch (e) { alert((e as Error).message); }
+  }
+
+  const editingInstance = typeof editing === 'number' ? instances.find((i) => i.id === editing) : undefined;
+
+  return (
+    <div ref={sectionRef} id="instances">
+      <PanelSection
+        title="Server instances"
+        description="Each instance is an independent Palworld server. Switch between them in the sidebar."
+      >
+        <div className="flex flex-col gap-2">
+          {instances.map((inst) => (
+            <div key={inst.id} className="flex items-center gap-3 px-4 py-3 bg-void/40 rounded-xl border border-line/50">
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-bone text-[13.5px]">{inst.name}</span>
+                <span className="ml-2 text-fog text-[11.5px] font-mono">:{inst.game_port} · {inst.service_name}</span>
+              </div>
+              <Button variant="ghost" onClick={() => setEditing(inst.id)}>Edit</Button>
+              {instances.length > 1 && (
+                <button onClick={() => del(inst.id)} className="text-fog hover:text-rust transition-colors text-[18px] leading-none">×</button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {editing === 'new' && (
+          <InstanceForm initial={BLANK_INSTANCE} onSave={save} onCancel={() => setEditing(null)} saving={saving} />
+        )}
+        {typeof editing === 'number' && editingInstance && (
+          <InstanceForm initial={editingInstance} onSave={save} onCancel={() => setEditing(null)} saving={saving} />
+        )}
+
+        {editing === null && (
+          <Button variant="ghost" onClick={() => setEditing('new')} className="mt-3">
+            + Add server
+          </Button>
+        )}
+      </PanelSection>
+    </div>
   );
 }
 

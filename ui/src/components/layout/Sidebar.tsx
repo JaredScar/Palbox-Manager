@@ -80,7 +80,7 @@ export function Sidebar({ instances, active, setActiveId, isElectron }: SidebarP
               </button>
             ))}
             <NavLink
-              to="/settings"
+              to="/settings#instances"
               onClick={() => setOpen(false)}
               className="block px-3 py-2.5 text-[11.5px] text-fog hover:text-bone border-t border-line hover:bg-white/4 transition-colors"
             >
