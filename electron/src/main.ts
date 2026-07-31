@@ -14,14 +14,40 @@ import path from 'path';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import fs from 'fs';
 
-// Disable GPU acceleration before anything else.
-// Windows VPS / Server environments have no GPU driver, causing Electron to
-// crash at startup with "GPU process isn't usable". Software rasterizer works
-// fine for a management panel and has no meaningful visual cost.
-app.disableHardwareAcceleration();
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('disable-software-rasterizer');
+// ── GPU / hardware-acceleration guard ────────────────────────────────────────
+//
+// On Windows VPS / Server hosts (no GPU driver) Electron's GPU process crashes
+// fatally at launch.  We handle this gracefully:
+//
+//  • First launch on a machine with no GPU → GPU process crashes → we write a
+//    flag file and immediately relaunch.  The relaunch reads the flag, disables
+//    hardware acceleration, and the app starts cleanly.
+//  • Subsequent launches on the same machine → flag exists → acceleration
+//    disabled upfront, no crash.
+//  • Machines that DO have a GPU → flag never written → acceleration stays on.
+//
+// app.disableHardwareAcceleration() MUST be called before app.whenReady(),
+// and app.getPath() is safe to call before ready, so this block must live at
+// module top-level.
+
+const GPU_FLAG_FILE = path.join(app.getPath('userData'), '.gpu-disabled');
+
+if (fs.existsSync(GPU_FLAG_FILE)) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
+
+// If the GPU process crashes at runtime, persist the flag and auto-relaunch.
+// The relaunch will pick up the flag above and start without GPU acceleration.
+app.on('gpu-process-crashed', (_event, _killed) => {
+  try {
+    fs.mkdirSync(path.dirname(GPU_FLAG_FILE), { recursive: true });
+    fs.writeFileSync(GPU_FLAG_FILE, '1', 'utf8');
+  } catch { /* ignore write errors */ }
+  app.relaunch();
+  app.quit();
+});
 
 const API_URL = 'http://localhost:4000';
 let mainWindow: BrowserWindow | null = null;
