@@ -16,39 +16,60 @@ import fs from 'fs';
 
 // ── GPU / hardware-acceleration guard ────────────────────────────────────────
 //
-// On Windows VPS / Server hosts (no GPU driver) Electron's GPU process crashes
-// fatally at launch.  We handle this gracefully:
+// On Windows VPS / Server hosts the GPU process crashes fatally (error_code=18)
+// before any Node.js event handlers can fire — so a "detect on crash" approach
+// cannot work.  We must decide synchronously at module load time, before
+// app.whenReady(), whether to enable or disable hardware acceleration.
 //
-//  • First launch on a machine with no GPU → GPU process crashes → we write a
-//    flag file and immediately relaunch.  The relaunch reads the flag, disables
-//    hardware acceleration, and the app starts cleanly.
-//  • Subsequent launches on the same machine → flag exists → acceleration
-//    disabled upfront, no crash.
-//  • Machines that DO have a GPU → flag never written → acceleration stays on.
-//
-// app.disableHardwareAcceleration() MUST be called before app.whenReady(),
-// and app.getPath() is safe to call before ready, so this block must live at
-// module top-level.
+// Strategy:
+//  • Query Win32_VideoController via wmic/PowerShell synchronously.
+//  • If every adapter is a "Microsoft Basic Display Adapter" or an RDP/Citrix
+//    virtual adapter (i.e. no real GPU), disable hardware acceleration.
+//  • If at least one real GPU is found, leave acceleration enabled.
+//  • On non-Windows platforms we rely on Electron's own detection.
 
-const GPU_FLAG_FILE = path.join(app.getPath('userData'), '.gpu-disabled');
+function queryGPUNames(): string[] {
+  if (process.platform !== 'win32') return ['real-gpu']; // non-Windows: assume GPU present
 
-if (fs.existsSync(GPU_FLAG_FILE)) {
+  const cmds = [
+    // wmic — available on Windows 10 / Server 2019+
+    'wmic path Win32_VideoController get Name /format:value',
+    // PowerShell fallback (wmic removed in some Windows 11 builds)
+    'powershell -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_VideoController).Name -join \'||\'"',
+  ];
+
+  for (const cmd of cmds) {
+    try {
+      const out = execSync(cmd, { encoding: 'utf8', timeout: 4000, stdio: 'pipe' });
+      if (out.trim()) return out.split(/\r?\n|[||]+/).map(l => l.replace(/^Name=/i, '').trim()).filter(Boolean);
+    } catch { /* try next */ }
+  }
+  return []; // could not determine — treat as no GPU
+}
+
+function shouldDisableGPU(): boolean {
+  const names = queryGPUNames();
+  if (names.length === 0) return true; // no adapters found → headless
+
+  const VIRTUAL_PATTERNS = [
+    /microsoft basic display/i,
+    /remote desktop/i,
+    /citrix/i,
+    /vmware svga/i,
+    /virtualbox/i,
+    /hyper-v video/i,
+    /parsec/i,
+  ];
+
+  // If every adapter matches a virtual/basic pattern, there is no real GPU
+  return names.every(name => VIRTUAL_PATTERNS.some(p => p.test(name)));
+}
+
+if (shouldDisableGPU()) {
   app.disableHardwareAcceleration();
   app.commandLine.appendSwitch('disable-gpu');
   app.commandLine.appendSwitch('disable-gpu-sandbox');
 }
-
-// If the GPU process crashes at runtime, persist the flag and auto-relaunch.
-// child-process-gone replaced the removed gpu-process-crashed event (Electron 14+).
-app.on('child-process-gone', (_event, details) => {
-  if (details.type !== 'GPU') return;
-  try {
-    fs.mkdirSync(path.dirname(GPU_FLAG_FILE), { recursive: true });
-    fs.writeFileSync(GPU_FLAG_FILE, '1', 'utf8');
-  } catch { /* ignore write errors */ }
-  app.relaunch();
-  app.quit();
-});
 
 const API_URL = 'http://localhost:4000';
 let mainWindow: BrowserWindow | null = null;
