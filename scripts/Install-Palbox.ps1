@@ -29,7 +29,19 @@ param(
 )
 
 Set-StrictMode -Version Latest
+# Native commands (nssm, node, winget) write to stderr for informational output which
+# would trigger Stop. We only want Stop for PowerShell cmdlet failures, so we manage
+# it explicitly around native-command blocks.
 $ErrorActionPreference = 'Stop'
+
+# Helper: run a native command, suppress stderr-triggered errors, return combined output
+function Invoke-Native {
+    param([scriptblock]$Cmd)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $out = & $Cmd 2>&1; return $out }
+    finally { $ErrorActionPreference = $prev }
+}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -73,11 +85,10 @@ function Install-NodeJS {
     # Try winget first (built into Windows 10 1809+ and Windows 11)
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "  Installing Node.js v$nodeVersion LTS via winget ..." -ForegroundColor Gray
-        $wg = Start-Process winget -ArgumentList `
-                'install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements' `
+        $wg = Start-Process winget `
+              -ArgumentList 'install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements' `
               -Wait -NoNewWindow -PassThru
         if ($wg.ExitCode -eq 0) {
-            # Refresh PATH in this session
             $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' +
                         [Environment]::GetEnvironmentVariable('PATH','User')
             Write-Host "  [OK] Node.js installed via winget." -ForegroundColor Green
@@ -136,7 +147,7 @@ Write-Header "Checking prerequisites"
 # ── Node.js ───────────────────────────────────────────────────────────────────
 $nodeOk = $false
 if (Get-Command node -ErrorAction SilentlyContinue) {
-    $nodeVerStr = (node --version 2>&1).ToString().TrimStart('v')
+    $nodeVerStr = (Invoke-Native { node --version }).ToString().TrimStart('v')
     $nodeMajor  = [int]($nodeVerStr.Split('.')[0])
     if ($nodeMajor -ge 22) {
         Write-Host "  [OK] Node.js v$nodeVerStr" -ForegroundColor Green
@@ -351,33 +362,33 @@ if (-not $NoService) {
     $nodeExe   = (Get-Command node).Source
     $apiScript = Join-Path $InstallPath 'api-dist\index.js'
 
-    $existing = & nssm status $ServiceName 2>&1
-    if ($existing -notmatch 'No such service') {
+    $existing = Invoke-Native { nssm status $ServiceName }
+    if (($existing -join ' ') -notmatch 'No such service') {
         Write-Host "  Removing existing service '$ServiceName' ..." -ForegroundColor Yellow
-        & nssm stop $ServiceName 2>&1 | Out-Null
-        & nssm remove $ServiceName confirm 2>&1 | Out-Null
+        Invoke-Native { nssm stop   $ServiceName } | Out-Null
+        Invoke-Native { nssm remove $ServiceName confirm } | Out-Null
     }
 
     $uiDistPath = Join-Path $InstallPath 'ui-dist'
 
-    & nssm install $ServiceName $nodeExe $apiScript
-    & nssm set $ServiceName AppDirectory $InstallPath
-    & nssm set $ServiceName AppEnvironmentExtra "DOTENV_CONFIG_PATH=$envPath" "UI_DIST=$uiDistPath"
-    & nssm set $ServiceName AppStdout (Join-Path $InstallPath 'palbox.log')
-    & nssm set $ServiceName AppStderr (Join-Path $InstallPath 'palbox-error.log')
-    & nssm set $ServiceName AppRotateFiles 1
-    & nssm set $ServiceName AppRotateBytes 10485760
-    & nssm set $ServiceName Start SERVICE_AUTO_START
-    & nssm set $ServiceName DisplayName 'Palbox - Palworld Server Panel'
-    & nssm set $ServiceName Description  'Self-hosted Palworld server management API.'
+    Invoke-Native { nssm install $ServiceName $nodeExe $apiScript } | Out-Null
+    Invoke-Native { nssm set $ServiceName AppDirectory        $InstallPath } | Out-Null
+    Invoke-Native { nssm set $ServiceName AppEnvironmentExtra "DOTENV_CONFIG_PATH=$envPath" "UI_DIST=$uiDistPath" } | Out-Null
+    Invoke-Native { nssm set $ServiceName AppStdout           (Join-Path $InstallPath 'palbox.log') } | Out-Null
+    Invoke-Native { nssm set $ServiceName AppStderr           (Join-Path $InstallPath 'palbox-error.log') } | Out-Null
+    Invoke-Native { nssm set $ServiceName AppRotateFiles      1 } | Out-Null
+    Invoke-Native { nssm set $ServiceName AppRotateBytes      10485760 } | Out-Null
+    Invoke-Native { nssm set $ServiceName Start               SERVICE_AUTO_START } | Out-Null
+    Invoke-Native { nssm set $ServiceName DisplayName         'Palbox - Palworld Server Panel' } | Out-Null
+    Invoke-Native { nssm set $ServiceName Description         'Self-hosted Palworld server management API.' } | Out-Null
 
     Write-Host "  [OK] Service '$ServiceName' registered" -ForegroundColor Green
 
     $startNow = Prompt-Value "Start service now? (Y/n)" "Y"
     if ($startNow -ne 'n') {
-        & nssm start $ServiceName
+        Invoke-Native { nssm start $ServiceName } | Out-Null
         Start-Sleep -Seconds 2
-        $status = & nssm status $ServiceName 2>&1
+        $status = (Invoke-Native { nssm status $ServiceName }) -join ''
         Write-Host "  Service status: $status" -ForegroundColor Cyan
     }
 }
