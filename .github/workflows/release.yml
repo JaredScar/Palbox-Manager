@@ -109,30 +109,25 @@ jobs:
           Copy-Item -Force scripts\Install-Palbox.ps1   "$dest\Install-Palbox.ps1"
           Copy-Item -Force scripts\Uninstall-Palbox.ps1 "$dest\Uninstall-Palbox.ps1"
 
-          # Write a quick README for the ZIP
-          @"
-# Palbox Server Package v$ver
-
-## Quick setup
-1. Extract this ZIP to a temporary folder.
-2. Open PowerShell **as Administrator** in that folder.
-3. Run:  ``.\Install-Palbox.ps1``
-
-The script will check prerequisites, prompt for your paths,
-write a .env file, and register a Windows service via NSSM.
-
-## Requirements
-- Windows 10 / Server 2019 or newer
-- Node.js 22+   https://nodejs.org
-- NSSM          https://nssm.cc/download  (extract nssm.exe to a folder on PATH)
-
-## Manual start (without NSSM)
-  cd api-dist
-  node index.js
-
-## Uninstall
-  .\Uninstall-Palbox.ps1 -RemoveFiles
-"@ | Set-Content "$dest\README-server.txt" -Encoding UTF8
+          # Write a quick README for the ZIP (avoid here-strings; unindented content breaks YAML block scalars)
+          $readme  = "# Palbox Server Package v$ver`r`n`r`n"
+          $readme += "## Quick setup`r`n"
+          $readme += "1. Extract this ZIP to a temporary folder.`r`n"
+          $readme += "2. Open PowerShell as Administrator in that folder.`r`n"
+          $readme += "3. Run: .\Install-Palbox.ps1`r`n`r`n"
+          $readme += "The script checks prerequisites (and installs Node.js 22 LTS`r`n"
+          $readme += "automatically if needed), prompts for your paths, writes .env,`r`n"
+          $readme += "and registers a Windows service via NSSM.`r`n`r`n"
+          $readme += "## Requirements`r`n"
+          $readme += "- Windows 10 / Server 2019 or newer`r`n"
+          $readme += "- Node.js 22+   https://nodejs.org  (installer can auto-install this)`r`n"
+          $readme += "- NSSM          https://nssm.cc/download`r`n`r`n"
+          $readme += "## Manual start (without NSSM)`r`n"
+          $readme += "  cd api-dist`r`n"
+          $readme += "  node index.js`r`n`r`n"
+          $readme += "## Uninstall`r`n"
+          $readme += "  .\Uninstall-Palbox.ps1 -RemoveFiles`r`n"
+          $readme | Set-Content "$dest\README-server.txt" -Encoding UTF8
 
           Write-Host "Staged to $dest"
           echo "STAGE=$dest" >> $env:GITHUB_OUTPUT
@@ -158,41 +153,33 @@ write a .env file, and register a Windows service via NSSM.
           $tag = "${{ steps.version.outputs.TAG }}"
           $isPrerelease = $tag -match '-'
 
-          $notes = @"
-          ## Palbox $tag
-
-          Self-hosted Palworld server management panel.
-
-          ### Downloads
-
-          | File | Description |
-          |------|-------------|
-          | ``Palbox-Setup-$ver.exe`` | **Desktop installer** (Windows x64). Electron app that bundles the full panel and launches the API automatically. Requires Node.js 22+ on the target machine. |
-          | ``palbox-server-$ver.zip`` | **Headless server package**. Extract and run ``Install-Palbox.ps1`` as Administrator to set up the panel as a Windows service via NSSM. |
-
-          ### Requirements
-          - Windows 10 / Server 2019 or newer (x64)
-          - [Node.js 22+](https://nodejs.org)
-          - [NSSM](https://nssm.cc/download) *(server ZIP only — for Windows service registration)*
-
-          ### First-time setup (server ZIP)
-          ```powershell
-          # 1. Extract palbox-server-$ver.zip
-          # 2. Open PowerShell as Administrator
-          .\Install-Palbox.ps1
-          # Follow the prompts — the script writes .env and registers the service.
-          ```
-
-          ### Upgrading from a previous version
-          ```powershell
-          nssm stop PalboxAPI
-          # Overwrite api-dist/ and node_modules/ with the new package contents,
-          # keeping your existing .env file.
-          nssm start PalboxAPI
-          ```
-          "@
-
-          $notes | Set-Content release-notes.md -Encoding UTF8
+          # Build release notes without here-strings to keep YAML valid
+          $n  = "## Palbox $tag`n`n"
+          $n += "Self-hosted Palworld server management panel.`n`n"
+          $n += "### Downloads`n`n"
+          $n += "| File | Description |`n"
+          $n += "|------|-------------|`n"
+          $n += "| ``Palbox-Setup-$ver.exe`` | **Desktop installer** (Windows x64). Bundles the full panel; launches the API automatically. Node.js 22 LTS is installed automatically if missing. |`n"
+          $n += "| ``palbox-server-$ver.zip`` | **Headless server package**. Extract and run ``Install-Palbox.ps1`` as Administrator. Node.js 22 LTS is installed automatically if missing. |`n`n"
+          $n += "### Requirements`n"
+          $n += "- Windows 10 / Server 2019 or newer (x64)`n"
+          $n += "- [Node.js 22+](https://nodejs.org) — installed automatically by both installers`n"
+          $n += "- [NSSM](https://nssm.cc/download) *(server ZIP only — for Windows service registration)*`n`n"
+          $n += "### First-time setup (server ZIP)`n"
+          $n += '```powershell' + "`n"
+          $n += "# 1. Extract palbox-server-$ver.zip`n"
+          $n += "# 2. Open PowerShell as Administrator`n"
+          $n += '.\Install-Palbox.ps1' + "`n"
+          $n += "# Follow the prompts — Node.js is auto-installed, .env is written, service is registered.`n"
+          $n += '```' + "`n`n"
+          $n += "### Upgrading from a previous version`n"
+          $n += '```powershell' + "`n"
+          $n += "nssm stop PalboxAPI`n"
+          $n += "# Overwrite api-dist/ and node_modules/ with the new package contents,`n"
+          $n += "# keeping your existing .env file.`n"
+          $n += "nssm start PalboxAPI`n"
+          $n += '```' + "`n"
+          $n | Set-Content release-notes.md -Encoding UTF8
           echo "PRERELEASE=$($isPrerelease.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
       # ── Create GitHub Release ──────────────────────────────────────────────────
