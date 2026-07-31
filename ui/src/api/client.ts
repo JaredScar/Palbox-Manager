@@ -51,6 +51,13 @@ export function makeApi(instanceId: number) {
     downloadUrl:    (id: number) => `${BASE}/instances/${instanceId}/backups/${id}/download`,
     restoreBackup:  (id: number) => request(p(`/backups/${id}/restore`), { method: 'POST' }),
 
+    // Save file browser
+    saveBrowser: (dir = '') => request<{ saveDir: string; dir: string; entries: SaveEntry[] }>(
+      p(`/savebrowser${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`),
+    ),
+    saveFileDownloadUrl: (filePath: string) =>
+      `${BASE}/instances/${instanceId}/savebrowser/download?path=${encodeURIComponent(filePath)}`,
+
     // Updates
     buildInfo:    () => request<BuildInfo>(p('/updates')),
     checkUpdate:  () => request(p('/updates/check'), { method: 'POST' }),
@@ -182,6 +189,14 @@ export function makeApi(instanceId: number) {
     palrestInfo: () => request<PalRestInfo>(p('/palrest/info')),
   };
 }
+
+// Global search (cross-instance)
+export const searchApi = {
+  search: (q: string, instanceId?: number) =>
+    request<{ query: string; results: SearchResult[] }>(
+      `/api/search?q=${encodeURIComponent(q)}${instanceId != null ? `&instanceId=${instanceId}` : ''}`,
+    ),
+};
 
 // Convenience: read auth state
 export const authApi = {
@@ -450,6 +465,25 @@ export interface Role {
   permissions: string;   // JSON array stored as string from SQLite
   is_builtin: number;
   created_at: number;
+}
+
+export interface SaveEntry {
+  name: string;
+  relativePath: string;
+  isDir: boolean;
+  size: number;
+  modifiedAt: number;
+}
+
+export interface SearchResult {
+  type: 'player' | 'chat' | 'audit' | 'note';
+  title: string;
+  subtitle: string;
+  meta?: string;
+  instanceId: number;
+  instanceName: string;
+  ts?: number;
+  link?: string;
 }
 
 export interface PalRestInfo {

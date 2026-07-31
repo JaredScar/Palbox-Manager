@@ -36,21 +36,35 @@ const LEAVE_RE = /NotifyPlayerLeft\s+uid=(\S+)/i;
 // Secondary patterns (older logs / community servers)
 const JOIN_SIMPLE_RE  = /LogNet:.*Join\s+succeeded:\s+(.+)$/i;
 
+export type PlayerEvent = { event: 'join' | 'leave'; player: TrackedPlayer };
+export type PlayerEventCallback = (evt: PlayerEvent) => void;
+
+const eventListeners = new Map<number, PlayerEventCallback>();
+
+export function setPlayerEventCallback(instanceId: number, cb: PlayerEventCallback): void {
+  eventListeners.set(instanceId, cb);
+}
+
 export function onLogLine(instanceId: number, line: string): void {
   const players = getMap(instanceId);
+  const emit = (evt: PlayerEvent) => eventListeners.get(instanceId)?.(evt);
 
   // ── Primary join ──────────────────────────────────────────────────────────
   const jm = JOIN_RE.exec(line);
   if (jm) {
     const [, name, uid, steamId = ''] = jm;
-    players.set(uid, { name: name.trim(), playerUid: uid, steamId, joinedAt: Date.now() });
+    const player: TrackedPlayer = { name: name.trim(), playerUid: uid, steamId, joinedAt: Date.now() };
+    players.set(uid, player);
+    emit({ event: 'join', player });
     return;
   }
 
   // ── Primary leave ─────────────────────────────────────────────────────────
   const lm = LEAVE_RE.exec(line);
   if (lm) {
+    const player = players.get(lm[1]);
     players.delete(lm[1]);
+    if (player) emit({ event: 'leave', player });
     return;
   }
 
@@ -58,9 +72,10 @@ export function onLogLine(instanceId: number, line: string): void {
   const jsm = JOIN_SIMPLE_RE.exec(line);
   if (jsm) {
     const name = jsm[1].trim();
-    // Use name as uid if we have no better key
     if (!players.has(name)) {
-      players.set(name, { name, playerUid: name, steamId: '', joinedAt: Date.now() });
+      const player: TrackedPlayer = { name, playerUid: name, steamId: '', joinedAt: Date.now() };
+      players.set(name, player);
+      emit({ event: 'join', player });
     }
     return;
   }

@@ -38,6 +38,8 @@ import publicRoutes from './routes/public.js';
 import triggersRoutes from './routes/triggers.js';
 import notificationsRoutes from './routes/notificationsRoute.js';
 import configHistoryRoutes from './routes/configHistory.js';
+import savebrowserRoutes from './routes/savebrowser.js';
+import searchRoutes from './routes/search.js';
 
 const app = express();
 
@@ -78,6 +80,8 @@ app.use('/api/public', publicRoutes);
 app.use('/api/instances/:instanceId/triggers', triggersRoutes);
 app.use('/api/instances/:instanceId/notifications', notificationsRoutes);
 app.use('/api/instances/:instanceId/server/config-history', configHistoryRoutes);
+app.use('/api/instances/:instanceId/savebrowser', savebrowserRoutes);
+app.use('/api/search', searchRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

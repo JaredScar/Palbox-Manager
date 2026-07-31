@@ -4,7 +4,8 @@ import fs from 'fs';
 import readline from 'readline';
 import type { Instance } from './db/types';
 import { log } from './lib/logger';
-import { onLogLine, clearPlayers } from './services/playerTracker';
+import { onLogLine, clearPlayers, setPlayerEventCallback } from './services/playerTracker';
+import { fireEvent } from './services/discord';
 
 let wss: WebSocketServer | null = null;
 
@@ -94,6 +95,17 @@ export function startLogTail(inst: Instance): void {
 
     // Clear stale player state before replaying the log (avoids phantom players)
     clearPlayers(inst.id);
+
+    // Wire Discord notifications for player join/leave events
+    setPlayerEventCallback(inst.id, ({ event, player }) => {
+      if (event === 'join') {
+        fireEvent(inst, 'player_joined', '➕ Player Joined',
+          `**${player.name}** joined **${inst.name}**.`).catch(() => {});
+      } else {
+        fireEvent(inst, 'player_left', '➖ Player Left',
+          `**${player.name}** left **${inst.name}**.`).catch(() => {});
+      }
+    });
 
     // Send the last 8 KB of existing content to the buffer so new clients get history
     const startPos = Math.max(0, fileSize - 8192);

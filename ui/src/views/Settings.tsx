@@ -345,23 +345,66 @@ export function Settings() {
         </ToggleRow>
       </PanelSection>
 
-      <PanelSection title="Discord notifications" description="Posts to a Discord channel via webhook — no bot required.">
+      <PanelSection title="Discord notifications" description="Posts rich embeds to a Discord channel via webhook — no bot required. Each event type can be toggled individually.">
         <div className="flex flex-col gap-1.5 mb-4">
           <label className={labelCls}>Webhook URL</label>
-          <input type="url" placeholder="https://discord.com/api/webhooks/..." value={appSettings.discord_webhook ?? ''} onChange={(e) => setApp('discord_webhook', e.target.value)} className={inputCls} />
+          <div className="flex gap-2">
+            <input type="url" placeholder="https://discord.com/api/webhooks/..." value={appSettings.discord_webhook ?? ''} onChange={(e) => setApp('discord_webhook', e.target.value)} className={`${inputCls} flex-1`} />
+            <button
+              className="shrink-0 px-3 py-2 rounded-lg text-[12px] bg-panel-raised border border-line text-fog hover:text-bone transition-colors"
+              onClick={async () => {
+                const url = appSettings.discord_webhook;
+                if (!url) return alert('Enter a webhook URL first.');
+                try {
+                  await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: '✅ Palbox webhook test — connection working!' }),
+                  });
+                  alert('Test message sent!');
+                } catch (e) { alert('Failed: ' + (e as Error).message); }
+              }}
+            >Test</button>
+          </div>
         </div>
-        <ToggleRow label="Server went offline / crashed">
-          <Switch checked={appSettings.discord_server_offline !== 'false'} onChange={(v) => setApp('discord_server_offline', String(v))} />
-        </ToggleRow>
-        <ToggleRow label="Backup failed">
-          <Switch checked={appSettings.discord_backup_failed !== 'false'} onChange={(v) => setApp('discord_backup_failed', String(v))} />
-        </ToggleRow>
-        <ToggleRow label="Update completed">
-          <Switch checked={appSettings.discord_update_completed !== 'false'} onChange={(v) => setApp('discord_update_completed', String(v))} />
-        </ToggleRow>
-        <ToggleRow label="Player joined / left">
-          <Switch checked={appSettings.discord_player_joined === 'true'} onChange={(v) => setApp('discord_player_joined', String(v))} />
-        </ToggleRow>
+        <div className="grid grid-cols-2 gap-x-6">
+          <ToggleRow label="Server comes online">
+            <Switch checked={appSettings.discord_server_online !== 'false'} onChange={(v) => setApp('discord_server_online', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Server goes offline">
+            <Switch checked={appSettings.discord_server_offline !== 'false'} onChange={(v) => setApp('discord_server_offline', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Server crashed / watchdog">
+            <Switch checked={appSettings.discord_server_crashed !== 'false'} onChange={(v) => setApp('discord_server_crashed', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Player joined">
+            <Switch checked={appSettings.discord_player_joined === 'true'} onChange={(v) => setApp('discord_player_joined', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Player left">
+            <Switch checked={appSettings.discord_player_left === 'true'} onChange={(v) => setApp('discord_player_left', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Player banned">
+            <Switch checked={appSettings.discord_player_banned !== 'false'} onChange={(v) => setApp('discord_player_banned', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Backup created">
+            <Switch checked={appSettings.discord_backup_created === 'true'} onChange={(v) => setApp('discord_backup_created', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Backup failed">
+            <Switch checked={appSettings.discord_backup_failed !== 'false'} onChange={(v) => setApp('discord_backup_failed', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Game update completed">
+            <Switch checked={appSettings.discord_update_completed !== 'false'} onChange={(v) => setApp('discord_update_completed', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Alert rule fires">
+            <Switch checked={appSettings.discord_alert !== 'false'} onChange={(v) => setApp('discord_alert', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Maintenance mode starts">
+            <Switch checked={appSettings.discord_maintenance_start !== 'false'} onChange={(v) => setApp('discord_maintenance_start', String(v))} />
+          </ToggleRow>
+          <ToggleRow label="Maintenance mode ends">
+            <Switch checked={appSettings.discord_maintenance_end !== 'false'} onChange={(v) => setApp('discord_maintenance_end', String(v))} />
+          </ToggleRow>
+        </div>
       </PanelSection>
 
       <PanelSection title="Application" description="This panel runs as a service on the VPS — reachable from a browser, or as a native window when on the box itself.">

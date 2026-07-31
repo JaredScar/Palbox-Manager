@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import https from 'https';
 import { requireAuth, requirePermission } from '../middleware/auth';
+import { fireEvent } from '../services/discord';
 import { resolveInstance } from '../middleware/instance';
 import { getDb } from '../db';
 import { rconExec } from '../lib/rcon';
@@ -111,9 +112,16 @@ router.post('/:steamId/ban', requirePermission('players.ban'), async (req, res) 
   const { reason, expires } = req.body as { reason?: string; expires?: number };
   try {
     await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, `BanPlayer ${req.params.steamId}`).catch(() => {});
+    const player = getDb()
+      .prepare('SELECT name FROM players WHERE instance_id = ? AND steam_id = ?')
+      .get(inst.id, req.params.steamId) as { name: string } | undefined;
     getDb()
       .prepare('UPDATE players SET banned = 1, ban_reason = ?, ban_expires = ? WHERE instance_id = ? AND steam_id = ?')
       .run(reason ?? null, expires ?? null, inst.id, req.params.steamId);
+    fireEvent(inst, 'player_banned', '🔨 Player Banned',
+      `**${player?.name ?? req.params.steamId}** was banned.`,
+      reason ? [{ name: 'Reason', value: reason }] : undefined,
+    ).catch(() => {});
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });

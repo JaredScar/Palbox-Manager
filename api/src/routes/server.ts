@@ -4,7 +4,7 @@ import { resolveInstance } from '../middleware/instance.js';
 import { getStatus, startServer, stopServer, restartServer, getCpuAndMemory } from '../services/palserver.js';
 import { rconExec } from '../lib/rcon.js';
 import { getDb } from '../db/index.js';
-import { sendDiscord } from '../services/discord.js';
+import { sendDiscord, fireEvent } from '../services/discord.js';
 import { isArmed, getLastIntervention, getMetrics24h } from '../services/watchdog.js';
 import { resolveInstalledBuildId } from '../services/steamcmd.js';
 import { readSettings } from '../services/ini.js';
@@ -116,18 +116,21 @@ router.get('/metrics/heatmap', requirePermission('metrics.view'), (req, res) => 
 });
 
 router.post('/start', requirePermission('server.start'), async (req, res) => {
+  const inst = req.instance!;
   try {
-    await startServer(req.instance!);
-    logAction(req.instance!.id, 'server.start');
+    await startServer(inst);
+    logAction(inst.id, 'server.start');
+    fireEvent(inst, 'server_online', '🟢 Server Online', `**${inst.name}** has started.`).catch(() => {});
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
 router.post('/stop', requirePermission('server.stop'), async (req, res) => {
+  const inst = req.instance!;
   try {
-    await sendDiscord(req.instance!, `**Palbox** — \`${req.instance!.name}\` is stopping.`, 'server_offline');
-    await stopServer(req.instance!);
-    logAction(req.instance!.id, 'server.stop');
+    fireEvent(inst, 'server_offline', '🔴 Server Offline', `**${inst.name}** is stopping.`).catch(() => {});
+    await stopServer(inst);
+    logAction(inst.id, 'server.stop');
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });

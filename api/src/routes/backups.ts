@@ -7,6 +7,7 @@ import { stopServer, startServer } from '../services/palserver.js';
 import { rconExec } from '../lib/rcon.js';
 import { logAction } from '../services/audit.js';
 import { broadcast } from '../ws.js';
+import { fireEvent } from '../services/discord.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -14,9 +15,13 @@ router.use(requireAuth, resolveInstance);
 router.get('/', requirePermission('backups.view'), (req, res) => res.json(listBackups(req.instance!.id)));
 
 router.post('/', requirePermission('backups.create'), async (req, res) => {
+  const inst = req.instance!;
   try {
-    const b = await createBackup(req.instance!, 'manual');
-    logAction(req.instance!.id, 'backup.create', b.filename);
+    const b = await createBackup(inst, 'manual');
+    logAction(inst.id, 'backup.create', b.filename);
+    fireEvent(inst, 'backup_created', '💾 Backup Created', `Manual backup \`${b.filename}\` created.`,
+      [{ name: 'Size', value: `${(b.size_bytes / 1024 / 1024).toFixed(1)} MB`, inline: true }],
+    ).catch(() => {});
     res.json(b);
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });

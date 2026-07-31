@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { authApi } from './api/client';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -7,12 +7,14 @@ import { Sidebar } from './components/layout/Sidebar';
 import { Titlebar } from './components/layout/Titlebar';
 import { UpdateBanner } from './components/UpdateBanner';
 import { SetupWizard } from './components/SetupWizard';
+import { GlobalSearch } from './components/layout/GlobalSearch';
 import { useUpdater } from './hooks/useUpdater';
 import { Login } from './views/Login';
 import { Dashboard } from './views/Dashboard';
 import { Players } from './views/Players';
 import { Bans } from './views/Bans';
 import { Backups } from './views/Backups';
+import SaveBrowser from './views/SaveBrowser';
 import { Updates } from './views/Updates';
 import { Metrics } from './views/Metrics';
 import { Mods } from './views/Mods';
@@ -39,11 +41,23 @@ function AppShell() {
   const { instances, active, setActiveId, reload } = useInstance();
   const updater = useUpdater();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const showWizard = instances.length === 0;
+
+  // Ctrl+K / Cmd+K opens global search
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); openSearch(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [openSearch]);
 
   return (
     <div className="flex flex-col h-screen bg-void text-bone overflow-hidden">
       {showWizard && <SetupWizard onDone={() => reload()} />}
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       <Titlebar isElectron={isElectron} onToggleMode={() => {}} />
       <UpdateBanner updater={updater} isElectron={isElectron} isServerMode={isServerMode} />
 
@@ -57,7 +71,13 @@ function AppShell() {
         </button>
         <img src="/logo.png" alt="Palbox" className="w-6 h-6 rounded-lg object-cover" />
         <span className="font-display font-bold text-[15px]">Palbox</span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={openSearch}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-panel-raised transition-colors text-fog hover:text-bone">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="11" cy="11" r="8" /><path strokeLinecap="round" d="m21 21-4.35-4.35" />
+            </svg>
+          </button>
           <NotificationBell />
         </div>
       </div>
@@ -79,27 +99,36 @@ function AppShell() {
         </div>
 
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden relative">
-          {/* Notification bell — desktop only (mobile is in top bar) */}
-          <div className="hidden lg:block absolute top-4 right-5 z-40">
+          {/* Search + notification bell — desktop only (mobile is in top bar) */}
+          <div className="hidden lg:flex absolute top-4 right-5 z-40 items-center gap-2">
+            <button onClick={openSearch}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-panel-raised border border-line text-fog hover:text-bone hover:border-fog/40 transition-colors text-[12px]">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <circle cx="11" cy="11" r="8" /><path strokeLinecap="round" d="m21 21-4.35-4.35" />
+              </svg>
+              Search
+              <kbd className="ml-1 font-mono text-[10px] opacity-60">Ctrl+K</kbd>
+            </button>
             <NotificationBell />
           </div>
           <Routes>
-            <Route path="/"         element={<Dashboard />} />
-            <Route path="/players"  element={<Players />} />
-            <Route path="/bans"     element={<Bans />} />
-            <Route path="/backups"  element={<Backups />} />
-            <Route path="/updates"  element={<Updates />} />
-            <Route path="/metrics"  element={<Metrics />} />
-            <Route path="/mods"     element={<Mods />} />
-            <Route path="/console"  element={<Console />} />
-            <Route path="/restarts" element={<Restarts />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/audit"    element={<Audit />} />
-            <Route path="/cluster"  element={<Cluster />} />
-            <Route path="/triggers" element={<Triggers />} />
-            <Route path="/world"    element={<WorldMap />} />
-            <Route path="/users"    element={<UserManagement />} />
-            <Route path="*"         element={<Navigate to="/" replace />} />
+            <Route path="/"             element={<Dashboard />} />
+            <Route path="/players"      element={<Players />} />
+            <Route path="/bans"         element={<Bans />} />
+            <Route path="/backups"      element={<Backups />} />
+            <Route path="/savebrowser"  element={<SaveBrowser />} />
+            <Route path="/updates"      element={<Updates />} />
+            <Route path="/metrics"      element={<Metrics />} />
+            <Route path="/mods"         element={<Mods />} />
+            <Route path="/console"      element={<Console />} />
+            <Route path="/restarts"     element={<Restarts />} />
+            <Route path="/settings"     element={<Settings />} />
+            <Route path="/audit"        element={<Audit />} />
+            <Route path="/cluster"      element={<Cluster />} />
+            <Route path="/triggers"     element={<Triggers />} />
+            <Route path="/world"        element={<WorldMap />} />
+            <Route path="/users"        element={<UserManagement />} />
+            <Route path="*"             element={<Navigate to="/" replace />} />
           </Routes>
         </div>
       </div>
