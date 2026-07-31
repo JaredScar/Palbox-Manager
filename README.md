@@ -128,11 +128,19 @@ nssm start PalboxAPI
 
 ## Upgrading
 
-**Server package:**
+### Server package — in-panel (recommended)
+
+Open the panel in your browser and go to **Settings → Panel updates**.  
+If a newer version is available you'll see an **Apply Update** button.  
+Click it — Palbox downloads the new release, registers a Windows Scheduled Task that runs outside the service process tree, and automatically stops + restarts the `PalboxAPI` service. The panel comes back online within ~30 seconds.
+
+> Check `C:\Palbox\palbox-update.log` if anything goes wrong.
+
+### Server package — manual fallback
 ```powershell
 nssm stop PalboxAPI
-# Extract the new palbox-server-*.zip and overwrite api-dist/ + node_modules/
-# Your .env is preserved (located at C:\Palbox\.env by default)
+# Extract the new palbox-server-*.zip over your install directory
+# (api-dist/, node_modules/, ui-dist/ are replaced; .env is untouched)
 nssm start PalboxAPI
 ```
 

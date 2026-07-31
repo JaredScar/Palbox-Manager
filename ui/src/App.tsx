@@ -17,6 +17,7 @@ import { Console } from './views/Console';
 import { Settings } from './views/Settings';
 import { Audit } from './views/Audit';
 import { Restarts } from './views/Restarts';
+import { PublicStatus } from './views/PublicStatus';
 import Cluster from './views/Cluster';
 
 /** True when running inside the Electron desktop shell. */
@@ -57,6 +58,9 @@ function AppShell() {
 }
 
 export default function App() {
+  // Public status page never requires auth — check path before anything else
+  if (window.location.pathname === '/public') return <PublicStatus />;
+
   const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {

@@ -6,6 +6,7 @@ import { listBackups, createBackup, deleteBackup, getBackupSchedule, updateBacku
 import { stopServer, startServer } from '../services/palserver.js';
 import { rconExec } from '../lib/rcon.js';
 import { logAction } from '../services/audit.js';
+import { broadcast } from '../ws.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -34,29 +35,61 @@ router.get('/:id/download', (req, res) => {
   res.download(b.filepath, b.filename);
 });
 
+// Track active restores so the UI can query progress without a WS connection
+const restoreProgress = new Map<number, { step: string; done: boolean; error: string | null }>();
+
+router.get('/:id/restore/status', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  res.json(restoreProgress.get(id) ?? { step: '', done: true, error: null });
+});
+
 router.post('/:id/restore', async (req, res) => {
   const inst = req.instance!;
   const b = listBackups(inst.id).find((x) => x.id === parseInt(req.params.id, 10));
   if (!b || !fs.existsSync(b.filepath)) { res.status(404).json({ error: 'Not found' }); return; }
 
+  const emit = (step: string, done = false, error: string | null = null) => {
+    restoreProgress.set(b.id, { step, done, error });
+    broadcast({ type: 'restore_progress', instanceId: inst.id, backupId: b.id, step, done, error });
+  };
+
   logAction(inst.id, 'backup.restore', b.filename);
-  res.json({ ok: true, message: 'Restore started — server will be briefly offline.' });
+  res.json({ ok: true, message: 'Restore started — watch the progress indicator.' });
+
   (async () => {
     try {
+      emit('Creating safety backup…');
       await createBackup(inst, 'manual');
+
+      emit('Saving world via RCON…');
       try { await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'Save'); } catch {}
+
+      emit('Stopping server…');
       await stopServer(inst);
+
+      emit('Extracting backup…');
       const { exec } = await import('child_process');
       const { promisify } = await import('util');
       const execAsync = promisify(exec);
+
+      const psCmd =
+        `Remove-Item -Path '${inst.save_dir.replace(/'/g, "''")}' -Recurse -Force -ErrorAction SilentlyContinue; ` +
+        `Expand-Archive -Path '${b.filepath.replace(/'/g, "''")}' -DestinationPath '${inst.save_dir.replace(/'/g, "''")}' -Force`;
+      const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
       await execAsync(
-        `powershell -NoProfile -NonInteractive -Command ` +
-          `"Remove-Item -Path '${inst.save_dir}' -Recurse -Force; ` +
-          `Expand-Archive -Path '${b.filepath}' -DestinationPath '${inst.save_dir}' -Force"`,
+        `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
         { timeout: 120_000 },
       );
+
+      emit('Starting server…');
       await startServer(inst);
-    } catch (err) { console.error('Restore failed:', err); }
+
+      emit('Restore complete!', true);
+    } catch (err) {
+      emit(`Error: ${(err as Error).message}`, true, (err as Error).message);
+    } finally {
+      setTimeout(() => restoreProgress.delete(b.id), 5 * 60 * 1000);
+    }
   })();
 });
 

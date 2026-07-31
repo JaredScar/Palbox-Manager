@@ -34,6 +34,7 @@ import playerNotesRoutes from './routes/playerNotes.js';
 import uptimeRoutes from './routes/uptime.js';
 import palrestRoutes from './routes/palrest.js';
 import appVersionRoutes from './routes/appVersion.js';
+import publicRoutes from './routes/public.js';
 
 const app = express();
 
@@ -66,6 +67,9 @@ app.use('/api/instances/:instanceId/palrest',    palrestRoutes);
 
 // App version / update check (for browser / headless deployments)
 app.use('/api/app-version', appVersionRoutes);
+
+// Public (no auth) status endpoint — shareable with community members
+app.use('/api/public', publicRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

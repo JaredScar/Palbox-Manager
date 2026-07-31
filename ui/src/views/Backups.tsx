@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Backup, BackupScheduleConfig } from '../api/client';
 import { useInstance } from '../context/InstanceContext';
 import { Button } from '../components/ui/Button';
@@ -41,14 +41,49 @@ function RetentionStrip({ backups }: { backups: Backup[] }) {
 const thCls = 'text-left text-[10.5px] uppercase tracking-widest text-fog font-medium px-4 pb-3 border-b border-line';
 const tdCls = 'px-4 py-3.5 border-b border-line text-[13px] last-of-type:border-0';
 
+interface RestoreState {
+  backupId: number;
+  step: string;
+  done: boolean;
+  error: string | null;
+}
+
 export function Backups() {
-  const { api } = useInstance();
+  const { api, active } = useInstance();
   const [backups, setBackups] = useState<Backup[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState<number | null>(null);
+  const [restoreState, setRestoreState] = useState<RestoreState | null>(null);
   const [schedule, setSchedule] = useState<BackupScheduleConfig>({ frequency: 'daily', hour: 3, day_of_week: 0, enabled: 1 });
   const [savingSched, setSavingSched] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // Subscribe to restore_progress WebSocket events
+  useEffect(() => {
+    if (!active) return;
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${window.location.host}/ws?instance=${active.id}`);
+    wsRef.current = ws;
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data as string) as {
+          type: string; instanceId: number; backupId: number;
+          step: string; done: boolean; error: string | null;
+        };
+        if (msg.type === 'restore_progress' && msg.instanceId === active.id) {
+          setRestoreState({ backupId: msg.backupId, step: msg.step, done: msg.done, error: msg.error });
+          if (msg.done) {
+            setRestoring(null);
+            // Reload backup list after a short delay
+            setTimeout(() => load(), 1500);
+          }
+        }
+      } catch { /* ignore */ }
+    };
+    return () => { ws.close(); wsRef.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id]);
 
   async function load() {
     if (!api) return;
@@ -69,9 +104,13 @@ export function Backups() {
   async function handleRestore(id: number) {
     if (!api || !confirm('Restore this snapshot? The server will stop briefly, and the current save will be backed up first.')) return;
     setRestoring(id);
-    try { await api.restoreBackup(id); alert('Restore started — server will restart automatically.'); }
-    catch (e) { alert((e as Error).message); }
-    setRestoring(null);
+    setRestoreState({ backupId: id, step: 'Starting restore…', done: false, error: null });
+    try { await api.restoreBackup(id); }
+    catch (e) {
+      alert((e as Error).message);
+      setRestoring(null);
+      setRestoreState(null);
+    }
   }
   async function handleDelete(id: number) {
     if (!api || !confirm('Delete this backup? This cannot be undone.')) return;
@@ -87,12 +126,63 @@ export function Backups() {
   const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
+  const RESTORE_STEPS = [
+    'Creating safety backup…',
+    'Saving world via RCON…',
+    'Stopping server…',
+    'Extracting backup…',
+    'Starting server…',
+    'Restore complete!',
+  ];
+
   return (
     <ViewWrapper eyebrow="Backups" title="Backup manager"
       description="Configure automatic backups and manage your snapshot history."
       accentVar="var(--gold)"
       actions={<Button variant="gold" loading={creating} onClick={handleBackup}>Back up now</Button>}
     >
+      {/* Restore progress overlay */}
+      {restoreState && !restoreState.done && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-panel border border-line rounded-2xl shadow-xl p-8 max-w-sm w-full mx-4">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-8 h-8 rounded-full border-2 border-gold border-t-transparent animate-spin" />
+              <div>
+                <div className="text-[15px] font-semibold">Restoring backup</div>
+                <div className="text-[12px] text-fog mt-0.5">Please wait — do not close this tab</div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              {RESTORE_STEPS.map((step, i) => {
+                const currentIdx = RESTORE_STEPS.indexOf(restoreState.step);
+                const isDone = i < currentIdx;
+                const isActive = i === currentIdx;
+                return (
+                  <div key={i} className={cn('flex items-center gap-2.5 text-[13px]',
+                    isDone ? 'text-lime' : isActive ? 'text-gold' : 'text-fog/40')}>
+                    <div className={cn('w-1.5 h-1.5 rounded-full shrink-0',
+                      isDone ? 'bg-lime' : isActive ? 'bg-gold animate-pulse' : 'bg-fog/20')} />
+                    {step}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore complete / error toast */}
+      {restoreState?.done && (
+        <div className={cn(
+          'fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-xl border text-[13px] font-medium',
+          restoreState.error
+            ? 'bg-rust/10 border-rust/30 text-rust'
+            : 'bg-lime/10 border-lime/30 text-lime',
+        )}>
+          <span>{restoreState.error ? `Restore failed: ${restoreState.error}` : 'Restore complete! Server is back online.'}</span>
+          <button onClick={() => setRestoreState(null)} className="ml-2 text-fog/60 hover:text-fog text-[16px] leading-none">&times;</button>
+        </div>
+      )}
       {/* Backup schedule config */}
       <PanelSection title="Auto-backup schedule">
         <div className="flex flex-wrap items-end gap-4">

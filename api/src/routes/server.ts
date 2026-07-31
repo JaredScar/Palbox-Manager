@@ -71,6 +71,24 @@ router.get('/metrics', (req, res) => {
   res.json(getMetrics(req.instance!.id, hours));
 });
 
+// Player peak hours — 7×24 heatmap (avg player count per day-of-week + hour)
+router.get('/metrics/heatmap', (req, res) => {
+  const rows = getDb()
+    .prepare(`
+      SELECT
+        CAST(strftime('%w', datetime(recorded_at, 'unixepoch')) AS INTEGER) AS dow,
+        CAST(strftime('%H', datetime(recorded_at, 'unixepoch')) AS INTEGER) AS hour,
+        AVG(players) AS avg_players,
+        MAX(players) AS max_players,
+        COUNT(*) AS samples
+      FROM metrics
+      WHERE instance_id = ?
+      GROUP BY dow, hour
+    `)
+    .all(req.instance!.id) as { dow: number; hour: number; avg_players: number; max_players: number; samples: number }[];
+  res.json(rows);
+});
+
 router.post('/start', async (req, res) => {
   try {
     await startServer(req.instance!);

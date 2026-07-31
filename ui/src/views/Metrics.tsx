@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
-import { MetricPoint, UptimeData } from '../api/client';
+import { MetricPoint, UptimeData, HeatmapCell } from '../api/client';
 import { useInstance } from '../context/InstanceContext';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { PanelSection } from '../components/ui/PanelSection';
@@ -33,18 +33,21 @@ export function Metrics() {
   const [range, setRange] = useState<Range>('24h');
   const [data, setData] = useState<MetricPoint[]>([]);
   const [uptime, setUptime] = useState<UptimeData | null>(null);
+  const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     if (!api) return;
     setLoading(true);
     try {
-      const [metrics, uptimeData] = await Promise.all([
+      const [metrics, uptimeData, heatmapData] = await Promise.all([
         api.metrics(RANGES.find((r) => r.value === range)!.hours),
         api.uptime(30).catch(() => null),
+        api.heatmap().catch(() => []),
       ]);
       setData(metrics);
       setUptime(uptimeData);
+      setHeatmap(heatmapData);
     } catch {}
     setLoading(false);
   }
@@ -203,9 +206,92 @@ export function Metrics() {
               </ResponsiveContainer>
             </div>
           </PanelSection>
+
+          {/* ── Player peak hours heatmap ─────────────────────────────── */}
+          <PanelSection
+            title="Player peak hours"
+            description="Average online player count by hour and day of week. Darker = more players. Hover a cell for details."
+          >
+            {heatmap.length === 0 ? (
+              <div className="text-fog text-[13px] py-2">
+                Not enough data yet — heatmap builds up over time as players join.
+              </div>
+            ) : (
+              <PlayerHeatmap cells={heatmap} />
+            )}
+          </PanelSection>
         </>
       )}
     </ViewWrapper>
+  );
+}
+
+// ── Player heatmap ────────────────────────────────────────────────────────────
+const DAYS_SHORT  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const HOURS_LABEL = Array.from({ length: 24 }, (_, i) =>
+  i === 0 ? '12a' : i < 12 ? `${i}a` : i === 12 ? '12p' : `${i - 12}p`,
+);
+
+function PlayerHeatmap({ cells }: { cells: HeatmapCell[] }) {
+  const [tooltip, setTooltip] = useState<{ dow: number; hour: number; cell: HeatmapCell } | null>(null);
+
+  // Build a lookup map
+  const lookup = new Map(cells.map((c) => [`${c.dow}-${c.hour}`, c]));
+  const globalMax = Math.max(...cells.map((c) => c.avg_players), 1);
+
+  return (
+    <div className="overflow-x-auto">
+      {/* Hour axis */}
+      <div className="flex pl-10 mb-1">
+        {HOURS_LABEL.map((h, i) => (
+          <div key={i} className="flex-1 text-center text-[9px] text-fog/60 font-mono min-w-[18px]">{h}</div>
+        ))}
+      </div>
+
+      {/* Grid rows (one per day) */}
+      {DAYS_SHORT.map((day, dow) => (
+        <div key={dow} className="flex items-center gap-0 mb-0.5">
+          <div className="w-10 text-[11px] text-fog/70 font-mono shrink-0 pr-1.5 text-right">{day}</div>
+          {Array.from({ length: 24 }, (_, hour) => {
+            const cell = lookup.get(`${dow}-${hour}`);
+            const intensity = cell ? Math.min(cell.avg_players / globalMax, 1) : 0;
+            const isHot = tooltip?.dow === dow && tooltip?.hour === hour;
+            return (
+              <div
+                key={hour}
+                className="flex-1 aspect-square rounded-sm cursor-default transition-all min-w-[18px] mx-px"
+                style={{
+                  background: intensity === 0
+                    ? 'color-mix(in srgb,var(--aqua) 4%,transparent)'
+                    : `color-mix(in srgb,var(--aqua) ${Math.round(10 + intensity * 75)}%,transparent)`,
+                  outline: isHot ? '1px solid var(--aqua)' : undefined,
+                }}
+                onMouseEnter={() => cell && setTooltip({ dow, hour, cell })}
+                onMouseLeave={() => setTooltip(null)}
+              />
+            );
+          })}
+        </div>
+      ))}
+
+      {/* Legend */}
+      <div className="flex items-center gap-2 mt-3">
+        <span className="text-[11px] text-fog/60">Less</span>
+        {[4, 15, 30, 50, 75, 100].map((pct) => (
+          <div key={pct} className="w-4 h-4 rounded-sm"
+            style={{ background: `color-mix(in srgb,var(--aqua) ${pct}%,transparent)` }} />
+        ))}
+        <span className="text-[11px] text-fog/60">More</span>
+        {tooltip && (
+          <div className="ml-auto text-[11.5px] text-bone font-mono bg-panel-raised border border-line px-3 py-1 rounded-lg">
+            {DAYS_SHORT[tooltip.dow]} {HOURS_LABEL[tooltip.hour]}
+            {' · '}<span className="text-aqua">{tooltip.cell.avg_players.toFixed(1)} avg</span>
+            {' · '}{tooltip.cell.max_players} peak
+            {' · '}{tooltip.cell.samples} samples
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

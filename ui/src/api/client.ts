@@ -31,6 +31,7 @@ export function makeApi(instanceId: number) {
     // Server
     status: () => request<ServerStatus>(p('/server/status')),
     metrics: (hours = 24) => request<MetricPoint[]>(p(`/server/metrics?hours=${hours}`)),
+    heatmap: () => request<HeatmapCell[]>(p('/server/metrics/heatmap')),
     start:   () => request(p('/server/start'),   { method: 'POST' }),
     stop:    () => request(p('/server/stop'),    { method: 'POST' }),
     restart: () => request(p('/server/restart'), { method: 'POST' }),
@@ -405,4 +406,12 @@ export interface PalRestInfo {
   description: string;
   worldguid: string;
   days: number;
+}
+
+export interface HeatmapCell {
+  dow: number;         // 0=Sun … 6=Sat
+  hour: number;        // 0-23
+  avg_players: number;
+  max_players: number;
+  samples: number;
 }
