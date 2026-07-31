@@ -373,7 +373,7 @@ if (-not $NoService) {
 
     Invoke-Native { nssm install $ServiceName $nodeExe $apiScript } | Out-Null
     Invoke-Native { nssm set $ServiceName AppDirectory        $InstallPath } | Out-Null
-    Invoke-Native { nssm set $ServiceName AppEnvironmentExtra "DOTENV_CONFIG_PATH=$envPath" "UI_DIST=$uiDistPath" } | Out-Null
+    Invoke-Native { nssm set $ServiceName AppEnvironmentExtra "DOTENV_CONFIG_PATH=$envPath" "UI_DIST=$uiDistPath" "PALBOX_INSTALL_DIR=$InstallPath" } | Out-Null
     Invoke-Native { nssm set $ServiceName AppStdout           (Join-Path $InstallPath 'palbox.log') } | Out-Null
     Invoke-Native { nssm set $ServiceName AppStderr           (Join-Path $InstallPath 'palbox-error.log') } | Out-Null
     Invoke-Native { nssm set $ServiceName AppRotateFiles      1 } | Out-Null

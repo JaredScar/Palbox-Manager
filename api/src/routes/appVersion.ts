@@ -91,9 +91,12 @@ router.get('/', requireAuth, async (_req, res) => {
 });
 
 // ── POST /api/app-version/update — headless server self-update ────────────────
-// Downloads the latest palbox-server-*.zip, extracts to a temp dir, then
-// spawns a detached PowerShell script that stops the NSSM service, swaps
-// the files, and restarts it.  Only works on Windows + server package.
+// 1. Downloads the latest palbox-server-*.zip to a temp directory.
+// 2. Writes an apply-update.ps1 script.
+// 3. Registers a Windows Scheduled Task (runs as SYSTEM, outside the service
+//    process tree) that fires immediately — so killing the NSSM service does
+//    NOT kill the updater.
+// Only works on Windows + server package.
 router.post('/update', requireAuth, async (_req, res) => {
   if (os.platform() !== 'win32') {
     return res.status(400).json({ error: 'Self-update is only supported on Windows server deployments.' });
@@ -111,24 +114,32 @@ router.post('/update', requireAuth, async (_req, res) => {
       return res.status(404).json({ error: 'Server ZIP asset not found in the latest release.' });
     }
 
-    // Install directory is the cwd (set by NSSM AppDirectory)
-    const installDir = process.cwd();
+    // Install directory: NSSM sets AppDirectory = install path (e.g. C:\Palbox)
+    const installDir = process.env.PALBOX_INSTALL_DIR ?? process.cwd();
     const palboxService = process.env.PALBOX_SERVICE ?? 'PalboxAPI';
     const tmpDir = path.join(os.tmpdir(), `palbox-update-${Date.now()}`);
     const zipPath = path.join(tmpDir, asset.name);
     const extractDir = path.join(tmpDir, 'extracted');
+    const logFile = path.join(installDir, 'palbox-update.log');
 
     fs.mkdirSync(tmpDir, { recursive: true });
 
-    // Download zip
+    // ── Download ZIP (follow GitHub CDN redirects) ─────────────────────────
     await new Promise<void>((resolve, reject) => {
-      const follow = (url: string) => {
+      const follow = (url: string, redirects = 0) => {
+        if (redirects > 10) { reject(new Error('Too many redirects')); return; }
         https.get(url, { headers: { 'User-Agent': 'Palbox-Manager/1.0' } }, (resp) => {
-          if (resp.statusCode === 301 || resp.statusCode === 302) {
-            follow(resp.headers.location!);
+          const loc = resp.headers.location;
+          if ((resp.statusCode === 301 || resp.statusCode === 302 || resp.statusCode === 307) && loc) {
+            resp.resume();
+            follow(loc, redirects + 1);
             return;
           }
-          if (resp.statusCode !== 200) { reject(new Error(`Download failed: ${resp.statusCode}`)); return; }
+          if (resp.statusCode !== 200) {
+            resp.resume();
+            reject(new Error(`Download failed: HTTP ${resp.statusCode}`));
+            return;
+          }
           const out = fs.createWriteStream(zipPath);
           resp.pipe(out);
           out.on('finish', resolve);
@@ -138,40 +149,117 @@ router.post('/update', requireAuth, async (_req, res) => {
       follow(asset.browser_download_url);
     });
 
-    // Write the updater PowerShell script
+    // ── Write apply-update.ps1 ─────────────────────────────────────────────
+    // Uses no $ErrorActionPreference = Stop so that NSSM stderr doesn't abort it.
+    // Searches for nssm.exe in common locations if not in PATH.
     const psScript = path.join(tmpDir, 'apply-update.ps1');
+
+    // Escape single-quote-sensitive strings for PS single-quoted literals
+    const esc = (s: string) => s.replace(/'/g, "''");
+
     const ps = [
-      `$ErrorActionPreference = 'Stop'`,
-      `Start-Sleep -Seconds 5`,
+      `# Palbox self-update script — generated at ${new Date().toISOString()}`,
+      `$ErrorActionPreference = 'Continue'`,
+      `$logFile = '${esc(logFile)}'`,
+      `function Log { param($m) $ts = [DateTime]::Now.ToString('HH:mm:ss'); "$ts  $m" | Tee-Object -FilePath $logFile -Append | Out-Null }`,
+      ``,
+      `Log "=== Palbox self-update started ==="`,
+      ``,
+      `# Locate nssm.exe`,
+      `$nssmExe = $null`,
+      `foreach ($loc in @('nssm','C:\\nssm\\nssm.exe','C:\\Palbox\\nssm.exe','C:\\tools\\nssm.exe')) {`,
+      `  try { $r = Get-Command $loc -ErrorAction SilentlyContinue; if ($r) { $nssmExe = $r.Source; break } } catch {}`,
+      `}`,
+      `if (-not $nssmExe) { Log "WARNING: nssm not found in PATH or common locations — service will not be auto-restarted" }`,
+      `else { Log "nssm found: $nssmExe" }`,
+      ``,
+      `# Give the API time to send its HTTP response before we kill it`,
+      `Log "Waiting 6 seconds before stopping service..."`,
+      `Start-Sleep -Seconds 6`,
+      ``,
+      `# Stop service`,
+      `if ($nssmExe) {`,
+      `  Log "Stopping service '${esc(palboxService)}'..."`,
+      `  & $nssmExe stop '${esc(palboxService)}' 2>&1 | Out-Null`,
+      `  Start-Sleep -Seconds 5`,
+      `  Log "Service stopped."`,
+      `}`,
+      ``,
       `# Extract ZIP`,
-      `Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force`,
-      `# Swap files (stop → copy → start)`,
-      `try { & nssm stop '${palboxService}' 2>&1 | Out-Null } catch {}`,
-      `Start-Sleep -Seconds 3`,
-      `$src = '${extractDir}'`,
-      `$dst = '${installDir}'`,
+      `Log "Extracting archive..."`,
+      `try {`,
+      `  Expand-Archive -Path '${esc(zipPath)}' -DestinationPath '${esc(extractDir)}' -Force`,
+      `  Log "Extraction complete."`,
+      `} catch {`,
+      `  Log "ERROR extracting ZIP: $_"`,
+      `  if ($nssmExe) { & $nssmExe start '${esc(palboxService)}' 2>&1 | Out-Null }`,
+      `  exit 1`,
+      `}`,
+      ``,
+      `# Swap files`,
+      `Log "Copying new files to install directory..."`,
+      `$src = '${esc(extractDir)}'`,
+      `$dst = '${esc(installDir)}'`,
       `foreach ($folder in @('api-dist','node_modules','ui-dist')) {`,
       `  $s = Join-Path $src $folder`,
+      `  $d = Join-Path $dst $folder`,
       `  if (Test-Path $s) {`,
-      `    Remove-Item (Join-Path $dst $folder) -Recurse -Force -ErrorAction SilentlyContinue`,
-      `    Copy-Item $s (Join-Path $dst $folder) -Recurse -Force`,
+      `    Log "  Replacing $folder..."`,
+      `    Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue`,
+      `    Copy-Item $s $d -Recurse -Force`,
+      `    Log "  $folder done."`,
+      `  } else {`,
+      `    Log "  SKIP $folder (not in archive)"`,
       `  }`,
       `}`,
-      `# Clean up temp files`,
-      `Remove-Item '${tmpDir}' -Recurse -Force -ErrorAction SilentlyContinue`,
+      ``,
+      `# Clean up temp dir`,
+      `Remove-Item '${esc(tmpDir)}' -Recurse -Force -ErrorAction SilentlyContinue`,
+      ``,
       `# Restart service`,
-      `& nssm start '${palboxService}' 2>&1 | Out-Null`,
+      `if ($nssmExe) {`,
+      `  Log "Starting service '${esc(palboxService)}'..."`,
+      `  & $nssmExe start '${esc(palboxService)}' 2>&1 | Out-Null`,
+      `  Start-Sleep -Seconds 3`,
+      `  $status = (& $nssmExe status '${esc(palboxService)}' 2>&1) -join ''`,
+      `  Log "Service status: $status"`,
+      `} else {`,
+      `  Log "WARNING: Please start the '${esc(palboxService)}' service manually."`,
+      `}`,
+      ``,
+      `# Remove this scheduled task`,
+      `schtasks /Delete /TN "PalboxSelfUpdate" /F 2>&1 | Out-Null`,
+      ``,
+      `Log "=== Palbox self-update complete ==="`,
     ].join('\r\n');
+
     fs.writeFileSync(psScript, ps, 'utf8');
 
-    // Launch detached — this process will be killed by nssm stop, so use cmd to schedule it
-    const cmd = `cmd /c start "" /B powershell -NonInteractive -ExecutionPolicy Bypass -File "${psScript}"`;
-    execAsync(cmd).catch(() => {});
+    // ── Schedule the update script via Windows Task Scheduler ─────────────
+    // Scheduled tasks run outside the NSSM service process tree, so stopping
+    // the service does NOT kill the updater.
+    const taskName = 'PalboxSelfUpdate';
+    // Delete any leftover task from a previous attempt
+    await execAsync(`schtasks /Delete /TN "${taskName}" /F`).catch(() => {});
+
+    // Create a task that runs as SYSTEM so it has the needed privileges
+    const createCmd = [
+      `schtasks /Create /F`,
+      `/TN "${taskName}"`,
+      `/TR "powershell.exe -NonInteractive -ExecutionPolicy Bypass -File \\"${psScript}\\""`,
+      `/SC ONCE /ST 00:00`,   // time doesn't matter; we /Run it immediately
+      `/RL HIGHEST`,
+      `/RU SYSTEM`,
+    ].join(' ');
+    await execAsync(createCmd);
+
+    // Trigger the task immediately (runs outside our process tree)
+    await execAsync(`schtasks /Run /TN "${taskName}"`);
 
     res.json({
       ok: true,
       version: info.latest,
-      message: `Downloading and applying v${info.latest}. The panel will restart in ~30 seconds.`,
+      message: `Update to v${info.latest} queued. The panel will go offline in ~10 seconds and restart automatically once the files are swapped. Check palbox-update.log in the install directory if anything goes wrong.`,
     });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });

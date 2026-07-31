@@ -377,6 +377,7 @@ export function Settings() {
       <AlertRulesSection />
       <BroadcastSection />
       <UserManagementSection />
+      <AppUpdateSection />
       <ThemeSection />
 
       <PanelSection title="Danger zone">
@@ -689,6 +690,93 @@ function InstancesSection() {
         )}
       </PanelSection>
     </div>
+  );
+}
+
+/* ── App / panel self-update ──────────────────────────────────────────────── */
+function AppUpdateSection() {
+  const [info, setInfo] = useState<{ current: string; latest: string; updateAvailable: boolean; releaseUrl: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/app-version', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => setInfo(d as { current: string; latest: string; updateAvailable: boolean; releaseUrl: string }))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function applyUpdate() {
+    if (!confirm(`Apply update to v${info?.latest}? The panel will go offline briefly while it restarts.`)) return;
+    setApplying(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/app-version/update', { method: 'POST', credentials: 'include' });
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? res.statusText);
+      setMessage(body.message ?? 'Update queued — the panel will restart shortly.');
+    } catch (e) {
+      setError((e as Error).message);
+      setApplying(false);
+    }
+  }
+
+  return (
+    <PanelSection title="Panel updates" description="The Palbox management panel version running on this server.">
+      {loading ? (
+        <div className="text-fog text-[13px]">Checking…</div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="bg-void/40 border border-line/50 rounded-xl px-4 py-3 flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-widest text-fog font-medium">Installed</span>
+              <span className="font-mono text-[15px] font-semibold">{info?.current ?? '–'}</span>
+            </div>
+            <div className="text-fog text-[18px]">→</div>
+            <div className={cn('border rounded-xl px-4 py-3 flex flex-col gap-0.5',
+              info?.updateAvailable ? 'border-violet/40 bg-violet/5' : 'border-line/50 bg-void/40')}>
+              <span className="text-[10px] uppercase tracking-widest text-fog font-medium">Latest on GitHub</span>
+              <span className={cn('font-mono text-[15px] font-semibold', info?.updateAvailable ? 'text-violet' : '')}>
+                {info?.latest ?? '–'}
+              </span>
+            </div>
+            {info?.updateAvailable && !applying && !message && (
+              <Button variant="violet" onClick={applyUpdate}>Apply update</Button>
+            )}
+            {applying && (
+              <div className="flex items-center gap-2 text-[13px] text-fog">
+                <svg className="animate-spin w-4 h-4 text-violet" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+                Applying…
+              </div>
+            )}
+          </div>
+
+          {message && (
+            <div className="p-3.5 rounded-xl bg-lime/6 border border-lime/30 text-lime text-[12.5px] leading-relaxed">
+              {message}
+              <div className="mt-2 text-fog/70">
+                Check <code className="font-mono text-[11px]">palbox-update.log</code> in your install directory for progress details.
+              </div>
+            </div>
+          )}
+          {error && (
+            <div className="p-3.5 rounded-xl bg-rust/8 border border-rust/30 text-rust text-[12.5px]">
+              {error}
+            </div>
+          )}
+
+          {!info?.updateAvailable && !message && (
+            <div className="text-fog text-[13px]">Panel is up to date.</div>
+          )}
+        </div>
+      )}
+    </PanelSection>
   );
 }
 
