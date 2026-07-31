@@ -1,6 +1,8 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { getDb } from '../db';
 import type { Instance } from '../db/types';
 import { log } from '../lib/logger';
@@ -19,11 +21,59 @@ export interface BuildInfo {
 const latestBuildId = new Map<number, string>();
 const lastChecked = new Map<number, number>();
 
+/** Read buildid from Steam's appmanifest ACF file on disk. */
+function readBuildIdFromManifest(inst: Instance): string | null {
+  // Candidate manifest paths relative to the server installation
+  const candidates: string[] = [];
+
+  if (inst.exe_path) {
+    // PalServer-Win64-Shipping-Cmd.exe lives in Pal\Binaries\Win64\
+    // Going up 4 levels gives the root where steamapps/ usually lives
+    const root = path.resolve(path.dirname(inst.exe_path), '..', '..', '..', '..');
+    candidates.push(path.join(root, 'steamapps', `appmanifest_${APP_ID}.acf`));
+    // Also try the palserver dir itself
+    const palDir = path.resolve(path.dirname(inst.exe_path), '..', '..', '..');
+    candidates.push(path.join(palDir, 'steamapps', `appmanifest_${APP_ID}.acf`));
+  }
+
+  // Common convention paths
+  candidates.push(`C:\\PalServer\\steamapps\\appmanifest_${APP_ID}.acf`);
+  candidates.push(`C:\\steamcmd\\steamapps\\appmanifest_${APP_ID}.acf`);
+  candidates.push(`D:\\PalServer\\steamapps\\appmanifest_${APP_ID}.acf`);
+
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const content = fs.readFileSync(p, 'utf8');
+      const m = content.match(/"buildid"\s+"(\d+)"/i);
+      if (m?.[1]) {
+        log.info(`[${inst.name}] Detected installed build ${m[1]} from ${p}`);
+        return m[1];
+      }
+    } catch {}
+  }
+  return null;
+}
+
 export function getInstalledBuildId(instanceId: number): string | null {
   const row = getDb()
     .prepare("SELECT value FROM settings WHERE instance_id = ? AND key = 'installed_build_id'")
     .get(instanceId) as { value: string } | undefined;
   return row?.value ?? null;
+}
+
+/** Return installed build ID — from DB first, then fall back to appmanifest on disk. */
+export function resolveInstalledBuildId(inst: Instance): string | null {
+  const fromDb = getInstalledBuildId(inst.id);
+  if (fromDb) return fromDb;
+
+  const fromDisk = readBuildIdFromManifest(inst);
+  if (fromDisk) {
+    // Cache in DB so future calls are instant
+    setInstalledBuildId(inst.id, fromDisk);
+    return fromDisk;
+  }
+  return null;
 }
 
 function setInstalledBuildId(instanceId: number, id: string): void {
@@ -59,7 +109,7 @@ export async function checkForUpdate(inst: Instance): Promise<BuildInfo> {
   } catch (err) {
     log.warn(`[${inst.name}] Steam build check failed:`, err);
   }
-  const installed = getInstalledBuildId(inst.id);
+  const installed = resolveInstalledBuildId(inst);
   const latest = latestBuildId.get(inst.id) ?? null;
   return {
     installed,
@@ -70,7 +120,7 @@ export async function checkForUpdate(inst: Instance): Promise<BuildInfo> {
 }
 
 export function getBuildInfo(inst: Instance): BuildInfo {
-  const installed = getInstalledBuildId(inst.id);
+  const installed = resolveInstalledBuildId(inst);
   const latest = latestBuildId.get(inst.id) ?? null;
   return {
     installed,

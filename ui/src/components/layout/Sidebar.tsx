@@ -30,7 +30,7 @@ export function Sidebar({ instances, active, setActiveId, isElectron }: SidebarP
     <aside className="w-[240px] shrink-0 bg-panel border-r border-line flex flex-col px-3.5 py-5 h-full overflow-hidden">
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-2 pb-5 mb-4 border-b border-line">
-        <div className="brand-mark" />
+        <img src="/logo.png" alt="Palbox" className="w-9 h-9 rounded-xl object-cover shrink-0" />
         <div className="leading-tight">
           <div className="text-[15px] font-display font-bold tracking-tight">Palbox</div>
           <div className="text-[11px] text-fog font-mono">palworld ops panel</div>

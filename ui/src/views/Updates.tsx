@@ -90,19 +90,10 @@ export function Updates() {
           )}
 
           <div className="grid grid-cols-[1fr,auto,1fr] gap-4 items-center mb-5">
-            {[
-              { label: 'Installed', id: info?.installed ?? '–', highlight: false },
-            ].concat([{ label: 'Latest on Steam', id: info?.latest ?? '–', highlight: !!info?.updateAvailable }]).map((b, i, arr) => i === 1 ? null :
-              i === 0 ? (
-                <div key="arr" className="bg-panel border border-line rounded-2xl p-5">
-                  <div className="text-[10px] uppercase tracking-widest text-fog mb-2">Installed</div>
-                  <div className="font-mono text-[18px] font-medium">{info?.installed ?? '–'}</div>
-                </div>
-              ) : null
-            )}
             <div className="bg-panel border border-line rounded-2xl p-5">
               <div className="text-[10px] uppercase tracking-widest text-fog mb-2">Installed</div>
               <div className="font-mono text-[18px] font-medium">{info?.installed ?? '–'}</div>
+              {!info?.installed && <div className="text-[11px] text-fog/60 mt-1">Not detected — run Check now or update via SteamCMD</div>}
             </div>
             <div className="text-fog text-[20px] text-center">→</div>
             <div className={cn('bg-panel border rounded-2xl p-5', info?.updateAvailable ? 'border-violet/40' : 'border-line')}>

@@ -41,12 +41,19 @@ export function toggleMod(id: number, instanceId: number, enabled: boolean): voi
 }
 
 export async function installModZip(inst: Instance, zipPath: string, modName: string): Promise<Mod> {
+  if (!inst.mods_dir) {
+    throw new Error('mods_dir is not configured for this instance. Set it in Settings → Server instances.');
+  }
+
   const folderName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
   const destDir = path.join(inst.mods_dir, folderName);
   fs.mkdirSync(destDir, { recursive: true });
 
+  // Use -EncodedCommand to avoid shell quoting issues under NSSM/SYSTEM
+  const psCmd = `Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`;
+  const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
   await execAsync(
-    `powershell -NoProfile -NonInteractive -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force"`,
+    `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
     { timeout: 30_000 },
   );
   if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);

@@ -6,7 +6,7 @@ import { rconExec } from '../lib/rcon.js';
 import { getDb } from '../db/index.js';
 import { sendDiscord } from '../services/discord.js';
 import { isArmed, getLastIntervention, getMetrics24h } from '../services/watchdog.js';
-import { getInstalledBuildId } from '../services/steamcmd.js';
+import { resolveInstalledBuildId } from '../services/steamcmd.js';
 import { readSettings } from '../services/ini.js';
 import { logAction } from '../services/audit.js';
 
@@ -35,7 +35,7 @@ router.get('/status', async (req, res) => {
     cpuPct,
     memMb,
     players,
-    buildId: getInstalledBuildId(inst.id),
+    buildId: resolveInstalledBuildId(inst),
     watchdogArmed: isArmed(inst.id),
     lastWatchdogIntervention: getLastIntervention(inst.id),
     instance: inst,
