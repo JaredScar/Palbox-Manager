@@ -207,6 +207,9 @@ export function Metrics() {
             </div>
           </PanelSection>
 
+          {/* ── Metrics export ───────────────────────────────────────── */}
+          <MetricsExport />
+
           {/* ── Player peak hours heatmap ─────────────────────────────── */}
           <PanelSection
             title="Player peak hours"
@@ -223,6 +226,62 @@ export function Metrics() {
         </>
       )}
     </ViewWrapper>
+  );
+}
+
+// ── Metrics export ────────────────────────────────────────────────────────────
+function MetricsExport() {
+  const { api } = useInstance();
+  const now    = Math.floor(Date.now() / 1000);
+  const [from, setFrom] = useState(now - 7 * 86400);
+  const [to, setTo]     = useState(now);
+  const [fmt, setFmt]   = useState<'csv' | 'json'>('csv');
+
+  function toInputVal(sec: number) {
+    return new Date(sec * 1000).toISOString().slice(0, 16);
+  }
+  function fromInputVal(s: string) {
+    return Math.floor(new Date(s).getTime() / 1000);
+  }
+
+  function doExport() {
+    if (!api) return;
+    const url = api.exportMetrics(from, to, fmt);
+    const a = document.createElement('a');
+    a.href = url; a.click();
+  }
+
+  return (
+    <PanelSection title="Export metrics" description="Download a date-range slice of your metrics data as CSV or JSON.">
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[11px] uppercase tracking-[0.09em] text-fog font-semibold">From</label>
+          <input type="datetime-local"
+            className="bg-panel-raised border border-line rounded-lg px-3 py-2 text-[13px] text-bone focus:outline-none focus:border-aqua"
+            value={toInputVal(from)}
+            onChange={(e) => setFrom(fromInputVal(e.target.value))} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[11px] uppercase tracking-[0.09em] text-fog font-semibold">To</label>
+          <input type="datetime-local"
+            className="bg-panel-raised border border-line rounded-lg px-3 py-2 text-[13px] text-bone focus:outline-none focus:border-aqua"
+            value={toInputVal(to)}
+            onChange={(e) => setTo(fromInputVal(e.target.value))} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[11px] uppercase tracking-[0.09em] text-fog font-semibold">Format</label>
+          <select value={fmt} onChange={(e) => setFmt(e.target.value as 'csv' | 'json')}
+            className="bg-panel-raised border border-line rounded-lg px-3 py-2 text-[13px] text-bone focus:outline-none focus:border-aqua">
+            <option value="csv">CSV</option>
+            <option value="json">JSON</option>
+          </select>
+        </div>
+        <button onClick={doExport}
+          className="px-4 py-2 rounded-lg bg-aqua/10 border border-aqua/30 text-aqua text-[13px] font-medium hover:bg-aqua/20 transition-colors">
+          Download
+        </button>
+      </div>
+    </PanelSection>
   );
 }
 

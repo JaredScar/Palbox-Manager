@@ -71,6 +71,32 @@ router.get('/metrics', (req, res) => {
   res.json(getMetrics(req.instance!.id, hours));
 });
 
+// Metrics export (CSV / JSON) with custom date range
+router.get('/metrics/export', (req, res) => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const from = parseInt(String(req.query.from ?? nowSec - 7 * 86400), 10);
+  const to   = parseInt(String(req.query.to   ?? nowSec), 10);
+  const fmt  = String(req.query.format ?? 'json');
+
+  const rows = getDb()
+    .prepare(`SELECT * FROM metrics WHERE instance_id = ? AND recorded_at BETWEEN ? AND ? ORDER BY recorded_at`)
+    .all(req.instance!.id, from, to) as { id: number; players: number; cpu_pct: number; mem_mb: number; recorded_at: number }[];
+
+  if (fmt === 'csv') {
+    const name = `metrics-${req.instance!.id}-${from}-${to}.csv`;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const lines = ['timestamp,datetime,players,cpu_pct,mem_mb',
+      ...rows.map((r) => `${r.recorded_at},${new Date(r.recorded_at * 1000).toISOString()},${r.players},${r.cpu_pct.toFixed(2)},${r.mem_mb.toFixed(1)}`),
+    ];
+    res.send(lines.join('\r\n'));
+  } else {
+    const name = `metrics-${req.instance!.id}-${from}-${to}.json`;
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    res.json(rows);
+  }
+});
+
 // Player peak hours — 7×24 heatmap (avg player count per day-of-week + hour)
 router.get('/metrics/heatmap', (req, res) => {
   const rows = getDb()

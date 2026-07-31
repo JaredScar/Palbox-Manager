@@ -32,6 +32,8 @@ export function makeApi(instanceId: number) {
     status: () => request<ServerStatus>(p('/server/status')),
     metrics: (hours = 24) => request<MetricPoint[]>(p(`/server/metrics?hours=${hours}`)),
     heatmap: () => request<HeatmapCell[]>(p('/server/metrics/heatmap')),
+    exportMetrics: (from: number, to: number, format: 'csv' | 'json') =>
+      `${p(`/server/metrics/export`)}?from=${from}&to=${to}&format=${format}`,
     start:   () => request(p('/server/start'),   { method: 'POST' }),
     stop:    () => request(p('/server/stop'),    { method: 'POST' }),
     restart: () => request(p('/server/restart'), { method: 'POST' }),
@@ -56,6 +58,30 @@ export function makeApi(instanceId: number) {
     getSchedule:  () => request<RestartSchedule>(p('/updates/schedule')),
     patchSchedule: (data: Partial<RestartSchedule>) =>
       request<RestartSchedule>(p('/updates/schedule'), { method: 'PATCH', body: JSON.stringify(data) }),
+
+    // Triggers
+    listTriggers:   () => request<EventTrigger[]>(`${BASE}/instances/${instanceId}/triggers`),
+    createTrigger:  (data: Partial<EventTrigger>) =>
+      request<EventTrigger>(`${BASE}/instances/${instanceId}/triggers`, { method: 'POST', body: JSON.stringify(data) }),
+    updateTrigger:  (id: number, data: Partial<EventTrigger>) =>
+      request(`${BASE}/instances/${instanceId}/triggers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteTrigger:  (id: number) =>
+      request(`${BASE}/instances/${instanceId}/triggers/${id}`, { method: 'DELETE' }),
+
+    // Notifications
+    listNotifications: (limit = 50) =>
+      request<AppNotification[]>(`${BASE}/instances/${instanceId}/notifications?limit=${limit}`),
+    unreadCount:    () => request<{ count: number }>(`${BASE}/instances/${instanceId}/notifications/unread`),
+    markAllRead:    () =>
+      request(`${BASE}/instances/${instanceId}/notifications/read`, { method: 'POST' }),
+
+    // Config history
+    listConfigHistory: () =>
+      request<ConfigSnapshot[]>(p('/server/config-history')),
+    getConfigSnapshot:  (id: number) =>
+      request<ConfigSnapshot & { content: string }>(p(`/server/config-history/${id}`)),
+    diffConfigSnapshot: (id: number) =>
+      request<{ diff: DiffLine[]; from?: number; to?: number }>(p(`/server/config-history/${id}/diff`)),
 
     // Settings
     getSettings:  () => request<Record<string, string>>(p('/settings')),
@@ -414,4 +440,40 @@ export interface HeatmapCell {
   avg_players: number;
   max_players: number;
   samples: number;
+}
+
+export interface EventTrigger {
+  id: number;
+  instance_id: number;
+  name: string;
+  event_type: string;
+  threshold: number;
+  action_type: string;
+  action_params: string;
+  cooldown_m: number;
+  enabled: number;
+  last_fired: number | null;
+  created_at: number;
+}
+
+export interface AppNotification {
+  id: number;
+  instance_id: number | null;
+  title: string;
+  body: string;
+  level: 'info' | 'warn' | 'error' | 'success';
+  read: number;
+  created_at: number;
+}
+
+export interface ConfigSnapshot {
+  id: number;
+  instance_id: number;
+  hash: string;
+  created_at: number;
+}
+
+export interface DiffLine {
+  type: '+' | '-' | ' ';
+  line: string;
 }

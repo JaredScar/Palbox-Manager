@@ -5,6 +5,9 @@ import { getStatus, startServer, getCpuAndMemory } from './palserver.js';
 import { rconExec } from '../lib/rcon.js';
 import { sendDiscord } from './discord.js';
 import { broadcast } from '../ws.js';
+import { evaluateTriggers } from './eventTriggers.js';
+import { pushNotification } from './notifications.js';
+import { snapshotConfig } from './configHistory.js';
 
 interface WatchdogState {
   armed: boolean;
@@ -12,6 +15,7 @@ interface WatchdogState {
   consecutiveFailures: number;
   previousPlayers: Set<string>; // steam IDs currently tracked as online
   lastStatus: 'online' | 'offline' | null;
+  previousPlayerCount: number;
 }
 
 const state = new Map<number, WatchdogState>();
@@ -25,6 +29,7 @@ function getState(instanceId: number): WatchdogState {
       consecutiveFailures: 0,
       previousPlayers: new Set(),
       lastStatus: null,
+      previousPlayerCount: 0,
     });
   }
   return state.get(instanceId)!;
@@ -133,13 +138,6 @@ async function checkHealth(inst: Instance): Promise<void> {
   const cutoff = Math.floor(Date.now() / 1000) - 30 * 86400;
   db.prepare('DELETE FROM metrics WHERE instance_id = ? AND recorded_at < ?').run(inst.id, cutoff);
 
-  // ── Uptime events (record status transitions) ──────────────────────────────
-  const curStatus: 'online' | 'offline' = status === 'online' ? 'online' : 'offline';
-  if (s.lastStatus !== curStatus) {
-    db.prepare('INSERT INTO uptime_events (instance_id, status) VALUES (?, ?)').run(inst.id, curStatus);
-    s.lastStatus = curStatus;
-  }
-
   // ── Broadcast live status ──────────────────────────────────────────────────
   broadcast({
     type: 'status',
@@ -152,6 +150,18 @@ async function checkHealth(inst: Instance): Promise<void> {
     memMb,
   });
 
+  // ── Evaluate event triggers ────────────────────────────────────────────────
+  const curStatus: 'online' | 'offline' = status === 'online' ? 'online' : 'offline';
+  await evaluateTriggers(inst, {
+    status: curStatus,
+    prevStatus: s.lastStatus,
+    cpuPct,
+    memMb,
+    playerCount: players.length,
+    prevPlayerCount: s.previousPlayerCount,
+  }).catch((err) => log.warn(`[${inst.name}] Trigger eval error:`, err));
+  s.previousPlayerCount = players.length;
+
   // ── Auto-restart if armed ──────────────────────────────────────────────────
   const gracePeriod = 2; // consecutive failures before restart
   if (s.armed && status === 'offline' && s.consecutiveFailures >= gracePeriod) {
@@ -162,6 +172,7 @@ async function checkHealth(inst: Instance): Promise<void> {
       "INSERT INTO watchdog_events (instance_id, event, detail) VALUES (?, 'restart', 'Server offline')",
     ).run(inst.id);
     await sendDiscord(inst, `**Palbox watchdog** — \`${inst.name}\` was offline and has been restarted.`, 'server_offline');
+    pushNotification(inst.id, 'Watchdog restarted server', `${inst.name} was offline and has been auto-restarted.`, 'warn');
     try {
       await startServer(inst);
     } catch (err) {
@@ -169,6 +180,20 @@ async function checkHealth(inst: Instance): Promise<void> {
     }
     broadcast({ type: 'watchdog', instanceId: inst.id, event: 'restart', ts: s.lastIntervention });
   }
+
+  // ── Uptime status transitions ──────────────────────────────────────────────
+  if (s.lastStatus !== curStatus) {
+    db.prepare('INSERT INTO uptime_events (instance_id, status) VALUES (?, ?)').run(inst.id, curStatus);
+    if (curStatus === 'offline') {
+      pushNotification(inst.id, 'Server went offline', inst.name, 'error');
+    } else {
+      pushNotification(inst.id, 'Server is online', inst.name, 'success');
+    }
+    s.lastStatus = curStatus;
+  }
+
+  // ── Snapshot INI config (detect changes) ─────────────────────────────────
+  snapshotConfig(inst);
 
   // ── Check alert rules ──────────────────────────────────────────────────────
   const alertRules = db
@@ -193,9 +218,11 @@ async function checkHealth(inst: Instance): Promise<void> {
       (rule.operator === 'eq' && actual === rule.threshold);
 
     if (triggered) {
-      const msg = `**Palbox alert** — \`${inst.name}\` | ${rule.name}: ${rule.metric} is ${actual} (${rule.operator} ${rule.threshold})`;
+      const detail = `${rule.metric} is ${actual} (${rule.operator} ${rule.threshold})`;
+      const msg = `**Palbox alert** — \`${inst.name}\` | ${rule.name}: ${detail}`;
       await sendDiscord(inst, msg, 'alert');
       db.prepare('UPDATE alert_rules SET last_fired = ? WHERE id = ?').run(nowSec, rule.id);
+      pushNotification(inst.id, `Alert: ${rule.name}`, detail, 'warn');
       log.warn(`[${inst.name}] Alert fired: "${rule.name}"`);
     }
   }

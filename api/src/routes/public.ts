@@ -53,4 +53,41 @@ router.get('/status', async (req, res) => {
   }
 });
 
+/**
+ * Embeddable widget — serves a self-contained JavaScript badge.
+ * Usage: <script src="http://your-panel:4000/api/public/widget.js?instance=1"></script>
+ */
+router.get('/widget.js', (req, res) => {
+  const instanceId = parseInt(String(req.query.instance ?? '1'), 10);
+  // The base URL is the origin of the request
+  const origin = `${req.protocol}://${req.get('host')}`;
+
+  const js = `
+(function(){
+  var root=document.currentScript&&document.currentScript.parentNode||document.body;
+  var el=document.createElement('div');
+  el.style='display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;font-family:system-ui,sans-serif;font-size:12px;background:#12111a;border:1px solid rgba(255,255,255,0.12);color:#f3effc;';
+  root.appendChild(el);
+  function update(){
+    fetch('${origin}/api/public/status?instance=${instanceId}')
+      .then(function(r){return r.json();})
+      .then(function(d){
+        var online=d.status==='online';
+        el.innerHTML='<span style="width:8px;height:8px;border-radius:50%;background:'+(online?'#7ce666':'#ff5d73')+'"></span>'
+          +'<strong style="color:#f3effc">'+d.serverName+'</strong>'
+          +'<span style="color:#a79fc7">'+d.playerCount+'/'+d.maxPlayers+' online</span>';
+        el.title='Last checked: '+new Date().toLocaleTimeString();
+      })
+      .catch(function(){el.innerHTML='<span style="color:#a79fc7">Status unavailable</span>';});
+  }
+  update();
+  setInterval(update,60000);
+})();
+`.trim();
+
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.send(js);
+});
+
 export default router;

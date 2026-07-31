@@ -6,6 +6,7 @@ import { stopServer, startServer } from '../services/palserver';
 import { rconExec } from '../lib/rcon';
 import { broadcast } from '../ws';
 import { getSchedule, updateSchedule, syncScheduler, getNextRestart } from '../services/scheduler';
+import { pushNotification } from '../services/notifications';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -26,7 +27,8 @@ router.post('/apply', async (req, res) => {
   const inst = req.instance!;
   if (updatingInstances.has(inst.id)) { res.status(409).json({ error: 'Update already in progress' }); return; }
   updatingInstances.add(inst.id);
-  res.json({ ok: true, message: 'Update started — watch the Console tab.' });
+  res.json({ ok: true, message: 'Update started — watch the Console tab or the Updates page.' });
+  pushNotification(inst.id, 'Game update started', `Updating ${inst.name} — server will restart.`, 'info');
   (async () => {
     try {
       try {
@@ -37,11 +39,16 @@ router.post('/apply', async (req, res) => {
         await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'Save');
       } catch {}
       await stopServer(inst);
-      await runUpdate(inst, (line) => broadcast({ type: 'log', instanceId: inst.id, line: `[steamcmd] ${line}` }));
+      await runUpdate(inst, (line) => {
+        broadcast({ type: 'log', instanceId: inst.id, line: `[steamcmd] ${line}` });
+        broadcast({ type: 'update_progress', instanceId: inst.id, line });
+      });
       await startServer(inst);
       broadcast({ type: 'update_complete', instanceId: inst.id });
+      pushNotification(inst.id, 'Game update complete', `Server updated and restarted.`, 'success');
     } catch (err) {
       broadcast({ type: 'log', instanceId: inst.id, line: `[update error] ${(err as Error).message}` });
+      pushNotification(inst.id, 'Game update failed', (err as Error).message, 'error');
     } finally { updatingInstances.delete(inst.id); }
   })();
 });

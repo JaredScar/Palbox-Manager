@@ -18,7 +18,10 @@ import { Settings } from './views/Settings';
 import { Audit } from './views/Audit';
 import { Restarts } from './views/Restarts';
 import { PublicStatus } from './views/PublicStatus';
+import { Triggers } from './views/Triggers';
+import { WorldMap } from './views/WorldMap';
 import Cluster from './views/Cluster';
+import { NotificationBell } from './components/NotificationBell';
 
 /** True when running inside the Electron desktop shell. */
 const isElectron = !!window.palbox?.isElectron;
@@ -38,20 +41,28 @@ function AppShell() {
       <UpdateBanner updater={updater} isElectron={isElectron} isServerMode={isServerMode} />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar instances={instances} active={active} setActiveId={setActiveId} isElectron={isElectron} />
-        <Routes>
-          <Route path="/"         element={<Dashboard />} />
-          <Route path="/players"  element={<Players />} />
-          <Route path="/backups"  element={<Backups />} />
-          <Route path="/updates"  element={<Updates />} />
-          <Route path="/metrics"  element={<Metrics />} />
-          <Route path="/mods"     element={<Mods />} />
-          <Route path="/console"  element={<Console />} />
-          <Route path="/restarts" element={<Restarts />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/audit"    element={<Audit />} />
-          <Route path="/cluster"  element={<Cluster />} />
-          <Route path="*"         element={<Navigate to="/" replace />} />
-        </Routes>
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden relative">
+          {/* Notification bell — absolute top-right of content area */}
+          <div className="absolute top-4 right-5 z-40">
+            <NotificationBell />
+          </div>
+          <Routes>
+            <Route path="/"         element={<Dashboard />} />
+            <Route path="/players"  element={<Players />} />
+            <Route path="/backups"  element={<Backups />} />
+            <Route path="/updates"  element={<Updates />} />
+            <Route path="/metrics"  element={<Metrics />} />
+            <Route path="/mods"     element={<Mods />} />
+            <Route path="/console"  element={<Console />} />
+            <Route path="/restarts" element={<Restarts />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/audit"    element={<Audit />} />
+            <Route path="/cluster"  element={<Cluster />} />
+            <Route path="/triggers" element={<Triggers />} />
+            <Route path="/world"    element={<WorldMap />} />
+            <Route path="*"         element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
       </div>
     </div>
   );

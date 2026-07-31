@@ -10,6 +10,8 @@ const NAV = [
   { path: '/updates',   label: 'Updates',   accent: '#b27cf2', icon: <UpdatesIcon /> },
   { path: '/restarts',  label: 'Restarts',  accent: '#f97316', icon: <RestartsIcon /> },
   { path: '/metrics',   label: 'Metrics',   accent: '#2fd9e8', icon: <MetricsIcon /> },
+  { path: '/triggers',  label: 'Triggers',  accent: '#f43f5e', icon: <TriggersIcon /> },
+  { path: '/world',     label: 'World Map', accent: '#22d3ee', icon: <WorldIcon /> },
   { path: '/mods',      label: 'Mods',      accent: '#3fd8b4', icon: <ModsIcon /> },
   { path: '/console',   label: 'Console',   accent: '#7ce666', icon: <ConsoleIcon /> },
   { path: '/cluster',   label: 'Cluster',   accent: '#ff9d3d', icon: <ClusterIcon /> },
@@ -145,3 +147,5 @@ function RestartsIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="cu
 function AuditIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M9 12h6M9 16h6M9 8h6"/><path d="M5 3h14a2 2 0 012 2v16a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>; }
 function ClusterIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="2" y="3" width="8" height="5" rx="1.5"/><rect x="14" y="3" width="8" height="5" rx="1.5"/><rect x="2" y="16" width="8" height="5" rx="1.5"/><rect x="14" y="16" width="8" height="5" rx="1.5"/><path d="M6 8v3M18 8v3M6 16v-3M18 16v-3M6 11h12"/></svg>; }
 function SettingsIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>; }
+function TriggersIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>; }
+function WorldIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14.5 14.5 0 010 18M12 3a14.5 14.5 0 000 18"/></svg>; }

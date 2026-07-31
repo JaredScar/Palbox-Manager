@@ -5,7 +5,7 @@ import { Switch } from '../components/ui/Switch';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { PanelSection, ToggleRow } from '../components/ui/PanelSection';
 import { cn } from '../lib/cn';
-import type { AlertRule, BroadcastSchedule, UserAccount, Instance } from '../api/client';
+import type { AlertRule, BroadcastSchedule, UserAccount, Instance, ConfigSnapshot, DiffLine } from '../api/client';
 import { authApi, instanceApi } from '../api/client';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
 
@@ -378,6 +378,8 @@ export function Settings() {
       <BroadcastSection />
       <UserManagementSection />
       <AppUpdateSection />
+      <ConfigHistorySection />
+      <WidgetSection />
       <ThemeSection />
 
       <PanelSection title="Danger zone">
@@ -776,6 +778,113 @@ function AppUpdateSection() {
           )}
         </div>
       )}
+    </PanelSection>
+  );
+}
+
+/* ── Config history ───────────────────────────────────────────────────────── */
+function ConfigHistorySection() {
+  const { api, active } = useInstance();
+  const [snapshots, setSnapshots] = useState<{ id: number; hash: string; created_at: number }[]>([]);
+  const [diffData, setDiffData]   = useState<{ diff: { type: '+' | '-' | ' '; line: string }[]; from?: number; to?: number } | null>(null);
+  const [loading, setLoading]     = useState(false);
+
+  useEffect(() => {
+    if (!api) return;
+    api.listConfigHistory().then(setSnapshots).catch(() => {});
+  }, [api, active?.id]);
+
+  async function viewDiff(id: number) {
+    if (!api) return;
+    setLoading(true);
+    try { setDiffData(await api.diffConfigSnapshot(id)); } catch { /* ignore */ }
+    setLoading(false);
+  }
+
+  return (
+    <PanelSection title="Config snapshot history"
+      description="A new snapshot is saved automatically whenever PalWorldSettings.ini changes. Click any entry to view the diff from the previous version.">
+      {snapshots.length === 0 && <div className="text-fog text-[13px] py-2">No snapshots yet — one will be saved on next watchdog tick.</div>}
+      <div className="flex flex-col gap-1.5">
+        {snapshots.slice(0, 10).map((s) => (
+          <button key={s.id} onClick={() => viewDiff(s.id)}
+            className="flex items-center justify-between px-4 py-2.5 rounded-xl border border-line hover:border-aqua/40 hover:bg-aqua/4 text-left transition-colors">
+            <div className="flex items-center gap-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-aqua shrink-0" />
+              <span className="font-mono text-[12px] text-fog/60">{s.hash.slice(0, 8)}</span>
+            </div>
+            <span className="text-[12px] text-fog">{new Date(s.created_at * 1000).toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+      {diffData && (
+        <div className="mt-4">
+          <div className="text-[11px] uppercase tracking-widest text-fog mb-2">
+            Diff
+            {diffData.from && diffData.to && ` · ${new Date(diffData.from * 1000).toLocaleString()} → ${new Date(diffData.to * 1000).toLocaleString()}`}
+          </div>
+          <div className="bg-panel-raised border border-line rounded-xl overflow-auto max-h-64 p-3 font-mono text-[11.5px] leading-relaxed">
+            {diffData.diff.filter((l) => l.type !== ' ' || l.line.trim()).map((l, i) => (
+              <div key={i} className={l.type === '+' ? 'text-lime' : l.type === '-' ? 'text-rust' : 'text-fog/40'}>
+                {l.type} {l.line}
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setDiffData(null)} className="mt-2 text-[11px] text-fog/50 hover:text-fog">Close diff</button>
+        </div>
+      )}
+      {loading && <div className="text-fog text-[13px] mt-2">Loading diff…</div>}
+    </PanelSection>
+  );
+}
+
+/* ── Embeddable widget ───────────────────────────────────────────────────────── */
+function WidgetSection() {
+  const { active } = useInstance();
+  const [copied, setCopied] = useState(false);
+  const origin = window.location.origin;
+  const instanceId = active?.id ?? 1;
+
+  const embedCode =
+    `<div id="palbox-status"></div>\n<script src="${origin}/api/public/widget.js?instance=${instanceId}"></script>`;
+  const iframeSrc = `${origin}/public?instance=${instanceId}`;
+
+  function copy(text: string) {
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
+
+  return (
+    <PanelSection title="Share your server"
+      description="Embed a live status badge on any external website, or share the full status page URL with your community.">
+      <div className="space-y-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-widest text-fog mb-2">Status badge embed</div>
+          <div className="bg-panel-raised border border-line rounded-xl p-3 font-mono text-[11.5px] text-bone-dim break-all leading-relaxed">
+            {embedCode}
+          </div>
+          <button onClick={() => copy(embedCode)}
+            className="mt-2 text-[12px] px-3 py-1.5 rounded-lg bg-aqua/10 border border-aqua/30 text-aqua hover:bg-aqua/20 transition-colors">
+            {copied ? 'Copied!' : 'Copy snippet'}
+          </button>
+        </div>
+
+        <div>
+          <div className="text-[11px] uppercase tracking-widest text-fog mb-2">Public status page URL</div>
+          <div className="flex items-center gap-3">
+            <div className="bg-panel-raised border border-line rounded-xl px-3 py-2 font-mono text-[12px] text-bone-dim flex-1 truncate">
+              {iframeSrc}
+            </div>
+            <a href={iframeSrc} target="_blank" rel="noreferrer"
+              className="shrink-0 text-[12px] px-3 py-1.5 rounded-lg bg-aqua/10 border border-aqua/30 text-aqua hover:bg-aqua/20 transition-colors">
+              Open
+            </a>
+            <button onClick={() => copy(iframeSrc)}
+              className="shrink-0 text-[12px] px-3 py-1.5 rounded-lg bg-panel-raised border border-line text-fog hover:text-bone transition-colors">
+              Copy
+            </button>
+          </div>
+        </div>
+      </div>
     </PanelSection>
   );
 }

@@ -234,6 +234,41 @@ function applySchema(db: Database.Database): void {
       status      TEXT NOT NULL CHECK(status IN ('online','offline')),
       started_at  INTEGER NOT NULL DEFAULT (unixepoch())
     );
+
+    -- ── Config snapshots (INI diff history) ─────────────────────────────────
+    CREATE TABLE IF NOT EXISTS config_snapshots (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+      content     TEXT NOT NULL,
+      hash        TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    -- ── Event triggers (if-this-then-that) ──────────────────────────────────
+    CREATE TABLE IF NOT EXISTS event_triggers (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id  INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+      name         TEXT NOT NULL,
+      event_type   TEXT NOT NULL,
+      threshold    REAL NOT NULL DEFAULT 0,
+      action_type  TEXT NOT NULL,
+      action_params TEXT NOT NULL DEFAULT '{}',
+      cooldown_m   INTEGER NOT NULL DEFAULT 30,
+      enabled      INTEGER NOT NULL DEFAULT 1,
+      last_fired   INTEGER,
+      created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    -- ── In-panel notifications ───────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS notifications (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id INTEGER REFERENCES instances(id) ON DELETE CASCADE,
+      title       TEXT NOT NULL,
+      body        TEXT NOT NULL DEFAULT '',
+      level       TEXT NOT NULL DEFAULT 'info' CHECK(level IN ('info','warn','error','success')),
+      read        INTEGER NOT NULL DEFAULT 0,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    );
   `);
 
   // ── Migrations (idempotent column additions) ──────────────────────────────

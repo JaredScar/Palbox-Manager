@@ -35,6 +35,9 @@ import uptimeRoutes from './routes/uptime.js';
 import palrestRoutes from './routes/palrest.js';
 import appVersionRoutes from './routes/appVersion.js';
 import publicRoutes from './routes/public.js';
+import triggersRoutes from './routes/triggers.js';
+import notificationsRoutes from './routes/notificationsRoute.js';
+import configHistoryRoutes from './routes/configHistory.js';
 
 const app = express();
 
@@ -70,6 +73,11 @@ app.use('/api/app-version', appVersionRoutes);
 
 // Public (no auth) status endpoint — shareable with community members
 app.use('/api/public', publicRoutes);
+
+// Instance-scoped feature routes
+app.use('/api/instances/:instanceId/triggers', triggersRoutes);
+app.use('/api/instances/:instanceId/notifications', notificationsRoutes);
+app.use('/api/instances/:instanceId/server/config-history', configHistoryRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
