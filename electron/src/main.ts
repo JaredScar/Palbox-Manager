@@ -11,6 +11,7 @@ import {
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'path';
+import net from 'net';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import fs from 'fs';
 
@@ -290,13 +291,31 @@ function getIcon(): Electron.NativeImage {
   catch { return nativeImage.createEmpty(); }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Resolve whether a TCP port is already bound on 127.0.0.1. */
+function isPortBound(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(true));   // EADDRINUSE → something is there
+    probe.once('listening', () => { probe.close(); resolve(false); });
+    probe.listen(port, '127.0.0.1');
+  });
+}
+
 // ── App events ────────────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   ensureEnv();
 
   if (!process.env.PALBOX_EXTERNAL_API) {
-    startApi();
+    // If port 4000 is already occupied (e.g. the headless NSSM service is
+    // running on the same machine), skip spawning a second API process — the
+    // Electron window will connect to the existing one instead.
+    const portTaken = await isPortBound(4000);
+    if (!portTaken) {
+      startApi();
+    }
   }
 
   createWindow();
