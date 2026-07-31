@@ -1,15 +1,34 @@
 # Palbox — Palworld Server Manager
 
-Self-hosted ops panel for your Palworld dedicated server(s).  
-Web UI for the browser or a native Electron window on the VPS.
+Self-hosted ops panel for your Palworld dedicated server(s).
+
+---
+
+## Which installer do I need?
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Running Palworld on a Windows VPS / dedicated server?              │
+│  → Use Option B (server ZIP).  Access the panel via your browser.  │
+│                                                                     │
+│  Want a native desktop app on your PC / laptop to manage a server? │
+│  → Use Option A (desktop installer).                                │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+> **Do NOT install the desktop `.exe` on your VPS.** Electron is a full
+> Chromium browser process — it requires a GPU-capable desktop session,
+> consumes significant RAM, and stops working when you disconnect from RDP.
+> The headless server package is the correct choice for any server environment.
 
 ---
 
 ## Installation
 
-### Option A — Desktop installer
+### Option A — Desktop installer (your PC / laptop)
 
-Go to the [**Releases**](../../releases/latest) page and grab the installer for your platform:
+Install on the machine **you manage from**, not the server itself.  
+Go to the [**Releases**](../../releases/latest) page:
 
 | File | Platform |
 |------|----------|
@@ -19,14 +38,15 @@ Go to the [**Releases**](../../releases/latest) page and grab the installer for 
 | `Palbox-vX.Y.Z-linux-x64.deb` | Linux — Debian/Ubuntu package |
 
 **Windows:** Node.js 22 is automatically detected and installed if missing.  
-**macOS (ARM64 / Apple Silicon):** Works natively; Intel Mac users can run it via Rosetta 2. Right-click → *Open* if macOS warns about an unverified developer.  
+**macOS:** Right-click → *Open* if macOS warns about an unverified developer.  
 **Linux (AppImage):** `chmod +x Palbox-*.AppImage && ./Palbox-*.AppImage`
 
-On first launch Palbox creates a config file at the platform's user-data directory and opens the panel in a desktop window.
+The desktop app embeds its own API server and opens the panel in a native window.  
+Point it at your remote Palworld server via Settings after first launch.
 
 ---
 
-### Option B — Headless server package (Windows VPS / NSSM service)
+### Option B — Headless server package (Windows VPS / dedicated server)
 
 1. Download **`palbox-server-vX.Y.Z.zip`** from [Releases](../../releases/latest) and extract it.
 2. Open **PowerShell as Administrator** inside the extracted folder:
@@ -40,7 +60,10 @@ On first launch Palbox creates a config file at the platform's user-data directo
 - [NSSM](https://nssm.cc/download) — place `nssm.exe` on your `PATH`
 - Node.js 22+ (auto-installed by the script if absent)
 
-After setup the panel is available at **http://localhost:4000** (or the port you chose).
+After setup the panel is available at **`http://<your-vps-ip>:4000`** from any browser.  
+Open that URL on your PC / phone — no desktop session on the VPS needed.
+
+> **Firewall:** open port 4000 (TCP inbound) in Windows Firewall and your hosting provider's network rules.
 
 ---
 
@@ -127,11 +150,28 @@ nssm start PalboxAPI
 Palbox-Manager/
 ├── api/          Express + TypeScript backend  (port 4000)
 ├── ui/           React + Vite SPA              (proxied in dev, static in prod)
-├── electron/     Desktop shell (optional)
+├── electron/     Desktop shell — runs on your local PC/laptop, NOT on the server
 └── scripts/      Install-Palbox.ps1, Uninstall-Palbox.ps1
 ```
 
 All three packages are npm workspaces.
+
+**Deployment model:**
+
+```
+Windows VPS (Palworld + Palbox API)        Your browser (anywhere)
+┌──────────────────────────────────┐       ┌────────────────────────────┐
+│  palbox-server.zip               │       │  http://<vps-ip>:4000      │
+│  ├─ Node.js API  :4000           │◄─────►│  Chrome / Firefox / Edge   │
+│  └─ NSSM service (always-on)     │       └────────────────────────────┘
+└──────────────────────────────────┘
+
+Your PC / laptop (optional desktop app)
+┌──────────────────────────────────┐
+│  Palbox-Setup-*.exe              │
+│  └─ Electron window + local API  │──► manages a remote Palworld server
+└──────────────────────────────────┘
+```
 
 ---
 
