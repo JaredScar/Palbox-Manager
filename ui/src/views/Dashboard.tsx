@@ -7,6 +7,21 @@ import { PanelSection } from '../components/ui/PanelSection';
 import { IconButton } from '../components/ui/IconButton';
 import { cn } from '../lib/cn';
 
+// Widget visibility stored in localStorage
+const WIDGET_KEY = 'palbox-dashboard-widgets';
+const ALL_WIDGETS = ['metrics', 'controls', 'players', 'world', 'leaderboard'] as const;
+type WidgetId = typeof ALL_WIDGETS[number];
+function loadWidgets(): Set<WidgetId> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(WIDGET_KEY) ?? '[]') as WidgetId[];
+    if (stored.length) return new Set(stored);
+  } catch {}
+  return new Set(ALL_WIDGETS);
+}
+function saveWidgets(set: Set<WidgetId>) {
+  localStorage.setItem(WIDGET_KEY, JSON.stringify([...set]));
+}
+
 function fmtUptime(s: number): string {
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
@@ -43,20 +58,34 @@ export function Dashboard() {
   const [showMaintenance, setShowMaintenance] = useState(false);
   const [maintMsg, setMaintMsg] = useState('Server is entering maintenance mode.');
   const [maintMins, setMaintMins] = useState(5);
+  const [visibleWidgets, setVisibleWidgets] = useState<Set<WidgetId>>(loadWidgets);
+  const [showCustomiser, setShowCustomiser] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<{ steam_id: string; name: string; playtime_s: number }[]>([]);
 
   const refresh = useCallback(async () => {
     if (!api) return;
     try {
-      const [s, m, w, maint] = await Promise.all([
+      const [s, m, w, maint, lb] = await Promise.all([
         api.status(),
         api.metrics(24),
         api.worldInfo(),
         api.maintenanceStatus().catch(() => null),
+        api.playerLeaderboard(5).catch(() => []),
       ]);
-      setStatus(s); setMetrics(m); setWorld(w); setMaintenance(maint);
+      setStatus(s); setMetrics(m); setWorld(w); setMaintenance(maint); setLeaderboard(lb);
     } catch {}
     setLoading(false);
   }, [api]);
+
+  function toggleWidget(id: WidgetId) {
+    setVisibleWidgets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      saveWidgets(next);
+      return next;
+    });
+  }
+  const show = (id: WidgetId) => visibleWidgets.has(id);
 
   useEffect(() => {
     setLoading(true);
@@ -111,6 +140,13 @@ export function Dashboard() {
       accentVar="var(--crimson)"
       actions={
         <>
+          <button onClick={() => setShowCustomiser((s) => !s)}
+            title="Customise widgets"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-fog hover:text-bone hover:bg-panel-raised transition-colors border border-transparent hover:border-line">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </button>
           <span className={cn(
             'inline-flex items-center gap-2 px-3 py-1.5 rounded-full font-mono text-[11px] border',
             online
@@ -137,6 +173,26 @@ export function Dashboard() {
         </>
       }
     >
+      {/* Widget customiser dropdown */}
+      {showCustomiser && (
+        <div className="mb-4 bg-panel border border-line rounded-2xl p-4 flex flex-wrap gap-3">
+          {([
+            { id: 'metrics' as WidgetId,     label: 'Metrics & sparklines' },
+            { id: 'controls' as WidgetId,    label: 'Server controls' },
+            { id: 'players' as WidgetId,     label: 'Online players' },
+            { id: 'leaderboard' as WidgetId, label: 'Playtime leaderboard' },
+            { id: 'world' as WidgetId,       label: 'World settings' },
+          ] as const).map(({ id, label }) => (
+            <button key={id} onClick={() => toggleWidget(id)}
+              className={cn('flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[12.5px] transition-colors',
+                show(id) ? 'bg-crimson/10 border-crimson/40 text-crimson' : 'border-line text-fog hover:text-bone')}>
+              <span className={cn('w-1.5 h-1.5 rounded-full', show(id) ? 'bg-crimson' : 'bg-fog/40')} />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="text-fog text-[14px] py-10">Loading…</div>
       ) : (
@@ -190,7 +246,7 @@ export function Dashboard() {
           )}
 
           {/* ── Status bar (full-width horizontal) ───────────────────────── */}
-          <div className="bg-panel border border-line rounded-2xl p-5 flex items-center gap-5 mb-4 relative overflow-hidden">
+          {show('controls') && <div className="bg-panel border border-line rounded-2xl p-5 flex items-center gap-5 mb-4 relative overflow-hidden">
             {/* Background glow */}
             <div
               className="absolute -top-6 -left-6 w-[200px] h-[200px] rounded-full blur-[60px] opacity-[0.12] pointer-events-none transition-colors duration-700"
@@ -269,8 +325,10 @@ export function Dashboard() {
             </div>
           </div>
 
+          }
+
           {/* ── Online now ──────────────────────────────────────────────────── */}
-          <div className="bg-panel border border-line rounded-2xl px-5 py-4 mb-4">
+          {show('players') && <div className="bg-panel border border-line rounded-2xl px-5 py-4 mb-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="text-[10px] uppercase tracking-[0.1em] text-fog font-semibold">Online now</div>
               <div className={cn(
@@ -302,8 +360,10 @@ export function Dashboard() {
             )}
           </div>
 
+          }
+
           {/* ── Performance charts ───────────────────────────────────────── */}
-          <PanelSection title="Performance, last 24h">
+          {show('metrics') && <PanelSection title="Performance, last 24h">
             <div className="grid grid-cols-2 gap-5">
               {[
                 { label: 'Players online', data: playerData, color: '#2fd9e8' },
@@ -318,7 +378,7 @@ export function Dashboard() {
                 </div>
               ))}
             </div>
-          </PanelSection>
+          </PanelSection>}
 
           {/* ── Backups ──────────────────────────────────────────────────── */}
           <PanelSection title="Backups" description="Nightly auto-backup with a 7-day rolling window.">
@@ -329,7 +389,7 @@ export function Dashboard() {
           </PanelSection>
 
           {/* ── World overview ────────────────────────────────────────────── */}
-          {world && Object.keys(world).length > 0 && (
+          {show('world') && world && Object.keys(world).length > 0 && (
             <PanelSection title="World overview">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 {[
@@ -355,6 +415,25 @@ export function Dashboard() {
               {world.serverDescription && (
                 <p className="text-[12.5px] text-fog mt-3 leading-relaxed">{world.serverDescription}</p>
               )}
+            </PanelSection>
+          )}
+
+          {/* ── Playtime leaderboard ─────────────────────────────────────── */}
+          {show('leaderboard') && leaderboard.length > 0 && (
+            <PanelSection title="Playtime leaderboard" description="Top players by total time on this server.">
+              <div className="flex flex-col gap-1.5">
+                {leaderboard.map((p, i) => {
+                  const fmtPt = (s: number) => `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+                  const medals = ['🥇', '🥈', '🥉'];
+                  return (
+                    <div key={p.steam_id} className="flex items-center gap-3 py-2 px-3 rounded-xl hover:bg-panel-raised transition-colors">
+                      <span className="w-6 text-center text-[15px] shrink-0">{medals[i] ?? <span className="font-mono text-fog text-[12px]">{i + 1}</span>}</span>
+                      <span className="flex-1 font-medium text-[13px] truncate">{p.name}</span>
+                      <span className="font-mono text-[12px] text-fog">{fmtPt(p.playtime_s)}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </PanelSection>
           )}
         </>

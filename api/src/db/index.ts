@@ -276,6 +276,8 @@ function applySchema(db: Database.Database): void {
     try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
   };
   addColIfMissing('scheduled_restarts', 'cron_expr', "TEXT NOT NULL DEFAULT ''");
+  addColIfMissing('players', 'ban_reason',  "TEXT");
+  addColIfMissing('players', 'ban_expires', "INTEGER");
 
   // Seed the default instance from env config if none exist
   const count = (db.prepare('SELECT COUNT(*) as c FROM instances').get() as { c: number }).c;

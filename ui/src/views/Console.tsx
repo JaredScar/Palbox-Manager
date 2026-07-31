@@ -5,6 +5,15 @@ import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { cn } from '../lib/cn';
 import type { RconMacro } from '../api/client';
 
+const RCON_COMMANDS = [
+  'ShowPlayers', 'KickPlayer', 'BanPlayer', 'UnBanPlayer',
+  'TeleportToPlayer', 'TeleportToMe', 'ShowAdminList',
+  'AddAdminPlayer', 'RemoveAdminPlayer',
+  'Broadcast ', 'Save', 'DoExit', 'Shutdown ',
+  'Info', 'ServerInfo',
+];
+const HISTORY_KEY = 'palbox-rcon-history';
+
 interface LogLine { id: number; text: string; ts: string; level: 'info' | 'warn' | 'sys' | 'err'; }
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -31,6 +40,11 @@ export function Console() {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [cmd, setCmd] = useState('');
   const [sending, setSending] = useState(false);
+  const [cmdHistory, setCmdHistory] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]'); } catch { return []; }
+  });
+  const [historyIdx, setHistoryIdx] = useState(-1);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [macros, setMacros] = useState<RconMacro[]>([]);
   const [showAddMacro, setShowAddMacro] = useState(false);
   const [macroForm, setMacroForm] = useState({ name: '', command: '', description: '', color: '#a79fc7' });
@@ -88,7 +102,13 @@ export function Console() {
   async function send() {
     if (!cmd.trim() || !api) return;
     setSending(true);
-    const sent = cmd;
+    const sent = cmd.trim();
+    // Persist to history
+    const newHistory = [sent, ...cmdHistory.filter((c) => c !== sent)].slice(0, 100);
+    setCmdHistory(newHistory);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+    setHistoryIdx(-1);
+    setSuggestions([]);
     try {
       const { result } = await api.rcon(sent);
       setLines((prev) => [
@@ -101,6 +121,44 @@ export function Console() {
       setLines((prev) => [...prev, { id: lineId++, text: `Error: ${(e as Error).message}`, ts: new Date().toTimeString().slice(0, 8), level: 'err' }]);
     }
     setSending(false);
+  }
+
+  function handleCmdKey(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { send(); return; }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = Math.min(historyIdx + 1, cmdHistory.length - 1);
+      setHistoryIdx(next);
+      if (cmdHistory[next] !== undefined) { setCmd(cmdHistory[next]); setSuggestions([]); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = historyIdx - 1;
+      setHistoryIdx(next);
+      if (next < 0) { setCmd(''); } else if (cmdHistory[next] !== undefined) { setCmd(cmdHistory[next]); }
+      setSuggestions([]);
+      return;
+    }
+    if (e.key === 'Escape') { setSuggestions([]); return; }
+    if (e.key === 'Tab' && suggestions.length > 0) {
+      e.preventDefault();
+      setCmd(suggestions[0]);
+      setSuggestions([]);
+      return;
+    }
+  }
+
+  function handleCmdChange(val: string) {
+    setCmd(val);
+    setHistoryIdx(-1);
+    if (val.length >= 1) {
+      const lower = val.toLowerCase();
+      const matches = RCON_COMMANDS.filter((c) => c.toLowerCase().startsWith(lower));
+      setSuggestions(matches.slice(0, 6));
+    } else {
+      setSuggestions([]);
+    }
   }
 
   async function runMacro(id: number) {
@@ -174,16 +232,28 @@ export function Console() {
                   <div ref={bottomRef} />
                 </div>
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Send RCON command, e.g. Broadcast Server restarting soon"
-                  value={cmd}
-                  onChange={(e) => setCmd(e.target.value)}
-                  onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && send()}
-                  disabled={sending}
-                  className="flex-1 font-mono text-[13px] focus:border-lime focus:outline-none disabled:opacity-50"
-                />
+              <div className="flex gap-2 relative">
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    placeholder="RCON command — ↑↓ history, Tab to autocomplete"
+                    value={cmd}
+                    onChange={(e) => handleCmdChange(e.target.value)}
+                    onKeyDown={handleCmdKey}
+                    disabled={sending}
+                    className="w-full font-mono text-[13px] focus:border-lime focus:outline-none disabled:opacity-50"
+                  />
+                  {suggestions.length > 0 && (
+                    <div className="absolute bottom-[calc(100%+4px)] left-0 right-0 bg-panel border border-line rounded-xl shadow-xl overflow-hidden z-50">
+                      {suggestions.map((s) => (
+                        <button key={s} onClick={() => { setCmd(s); setSuggestions([]); }}
+                          className="block w-full text-left px-3 py-2 font-mono text-[12.5px] text-fog hover:bg-white/[0.06] hover:text-bone transition-colors">
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Button variant="lime" onClick={send} loading={sending} disabled={!cmd.trim()}>Send</Button>
               </div>
             </>

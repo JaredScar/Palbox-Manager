@@ -169,10 +169,21 @@ export function Players() {
   const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
   const [detailPlayer, setDetailPlayer] = useState<Player | null>(null);
+  const [geoMap, setGeoMap] = useState<Record<string, { country: string; flag: string }>>({});
 
   async function load() {
     if (!api) return;
-    try { setPlayers(await api.listPlayers()); } catch {}
+    try {
+      const ps = await api.listPlayers();
+      setPlayers(ps);
+      // Fetch geo in the background for players without cached data
+      for (const p of ps.slice(0, 20)) {
+        if (geoMap[p.steam_id]) continue;
+        api.playerGeo(p.steam_id).then((geo) =>
+          setGeoMap((prev) => ({ ...prev, [p.steam_id]: geo })),
+        ).catch(() => {});
+      }
+    } catch {}
     setLoading(false);
   }
   useEffect(() => { load(); }, [api]);
@@ -252,16 +263,28 @@ export function Players() {
       <PanelSection noPad>
         <table className="w-full border-collapse text-[13px]">
           <thead><tr>
-            {['Player','Status','Playtime','Last seen',''].map((h,i) => <th key={i} className={thCls}>{h}</th>)}
+            {['Player','Region','Status','Playtime','Last seen',''].map((h,i) => <th key={i} className={thCls}>{h}</th>)}
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={5} className="text-center text-fog px-4 py-8">Loading…</td></tr>}
-            {!loading && players.length === 0 && <tr><td colSpan={5} className="text-center text-fog px-4 py-8">No players in roster yet.</td></tr>}
-            {players.map((p) => (
+            {loading && <tr><td colSpan={6} className="text-center text-fog px-4 py-8">Loading…</td></tr>}
+            {!loading && players.length === 0 && <tr><td colSpan={6} className="text-center text-fog px-4 py-8">No players in roster yet.</td></tr>}
+            {players.map((p) => {
+              const geo = geoMap[p.steam_id];
+              return (
               <tr key={p.steam_id} className="hover:bg-white/[0.02] cursor-pointer" onClick={() => setDetailPlayer(p)}>
                 <td className={cn(tdCls, 'font-mono text-[12.5px] text-bone-dim')}>
                   <span className="text-bone">{p.name}</span>
                   <span className="text-fog ml-1.5 text-[11px]">{p.steam_id.slice(0,12)}…</span>
+                </td>
+                <td className={tdCls}>
+                  {geo ? (
+                    <span className="flex items-center gap-1.5 text-[12px]">
+                      <span className="text-[16px]">{geo.flag}</span>
+                      <span className="text-fog">{geo.country}</span>
+                    </span>
+                  ) : (
+                    <span className="text-fog/40 text-[11px]">–</span>
+                  )}
                 </td>
                 <td className={tdCls}>
                   {p.banned ? <Tag variant="banned">banned</Tag>
@@ -289,7 +312,7 @@ export function Players() {
                   </div>
                 </td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
       </PanelSection>

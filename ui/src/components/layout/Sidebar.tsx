@@ -6,6 +6,7 @@ import { Instance } from '../../api/client';
 const NAV = [
   { path: '/',          label: 'Dashboard', accent: '#ff5d73', icon: <DashIcon /> },
   { path: '/players',   label: 'Players',   accent: '#ff9d3d', icon: <PlayersIcon /> },
+  { path: '/bans',      label: 'Ban manager', accent: '#ff5c5c', icon: <BanIcon /> },
   { path: '/backups',   label: 'Backups',   accent: '#ffd447', icon: <BackupsIcon /> },
   { path: '/updates',   label: 'Updates',   accent: '#b27cf2', icon: <UpdatesIcon /> },
   { path: '/restarts',  label: 'Restarts',  accent: '#f97316', icon: <RestartsIcon /> },
@@ -24,13 +25,14 @@ interface SidebarProps {
   active: Instance | null;
   setActiveId: (id: number) => void;
   isElectron?: boolean;
+  onClose?: () => void;
 }
 
-export function Sidebar({ instances, active, setActiveId, isElectron }: SidebarProps) {
+export function Sidebar({ instances, active, setActiveId, isElectron, onClose }: SidebarProps) {
   const [open, setOpen] = useState(false);
 
   return (
-    <aside className="w-[240px] shrink-0 bg-panel border-r border-line flex flex-col px-3.5 py-5 h-full overflow-hidden">
+    <aside className="w-[240px] shrink-0 bg-panel border-r border-line flex flex-col px-3.5 py-5 h-full overflow-hidden overflow-y-auto">
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-2 pb-5 mb-4 border-b border-line">
         <img src="/logo.png" alt="Palbox" className="w-9 h-9 rounded-xl object-cover shrink-0" />
@@ -100,6 +102,7 @@ export function Sidebar({ instances, active, setActiveId, isElectron }: SidebarP
             key={path}
             to={path}
             end={path === '/'}
+            onClick={onClose}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium',
@@ -149,3 +152,4 @@ function ClusterIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="cur
 function SettingsIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>; }
 function TriggersIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>; }
 function WorldIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14.5 14.5 0 010 18M12 3a14.5 14.5 0 000 18"/></svg>; }
+function BanIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M4.93 4.93l14.14 14.14"/></svg>; }

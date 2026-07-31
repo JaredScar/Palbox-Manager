@@ -96,14 +96,18 @@ export function makeApi(instanceId: number) {
 
     // Players
     listPlayers: () => request<Player[]>(p('/players')),
+    playerLeaderboard: (limit = 10) => request<{ steam_id: string; name: string; playtime_s: number }[]>(p(`/players/leaderboard?limit=${limit}`)),
+    listBans: () => request<Player[]>(p('/players/bans')),
     playerEvents: (limit = 100) => request<PlayerEvent[]>(p(`/players/events?limit=${limit}`)),
+    playerGeo: (steamId: string) => request<{ country: string; flag: string }>(p(`/players/${steamId}/geo`)),
     addPlayer: (steam_id: string, name: string) =>
       request(p('/players'), { method: 'POST', body: JSON.stringify({ steam_id, name }) }),
     setWhitelist: (steamId: string, whitelisted: boolean) =>
       request(p(`/players/${steamId}/whitelist`), { method: 'PATCH', body: JSON.stringify({ whitelisted }) }),
     kickPlayer: (steamId: string, reason?: string) =>
       request(p(`/players/${steamId}/kick`), { method: 'POST', body: JSON.stringify({ reason }) }),
-    banPlayer:  (steamId: string) => request(p(`/players/${steamId}/ban`),   { method: 'POST' }),
+    banPlayer:  (steamId: string, reason?: string, expires?: number) =>
+      request(p(`/players/${steamId}/ban`),   { method: 'POST', body: JSON.stringify({ reason, expires }) }),
     unbanPlayer:(steamId: string) => request(p(`/players/${steamId}/unban`), { method: 'POST' }),
 
     // Mods
@@ -290,6 +294,8 @@ export interface Player {
   last_seen: number | null;
   whitelisted: number;
   banned: number;
+  ban_reason: string | null;
+  ban_expires: number | null;
 }
 
 export interface PlayerEvent {
