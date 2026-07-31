@@ -268,7 +268,10 @@ while (-not $adminPass) {
     $adminPass = Prompt-Value "Admin password" "" -Password
 }
 
-$jwtSecret = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(48))
+$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+$rngBytes = New-Object byte[] 48
+$rng.GetBytes($rngBytes)
+$jwtSecret = [Convert]::ToBase64String($rngBytes)
 $apiPort   = Prompt-Value "API port" "4000"
 
 Write-Host ""
