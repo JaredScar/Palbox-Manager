@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { authApi } from './api/client';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { InstanceProvider, useInstance } from './context/InstanceContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Titlebar } from './components/layout/Titlebar';
@@ -22,6 +23,7 @@ import { Restarts } from './views/Restarts';
 import { PublicStatus } from './views/PublicStatus';
 import { Triggers } from './views/Triggers';
 import { WorldMap } from './views/WorldMap';
+import { UserManagement } from './views/UserManagement';
 import Cluster from './views/Cluster';
 import { NotificationBell } from './components/NotificationBell';
 
@@ -96,6 +98,7 @@ function AppShell() {
             <Route path="/cluster"  element={<Cluster />} />
             <Route path="/triggers" element={<Triggers />} />
             <Route path="/world"    element={<WorldMap />} />
+            <Route path="/users"    element={<UserManagement />} />
             <Route path="*"         element={<Navigate to="/" replace />} />
           </Routes>
         </div>
@@ -124,8 +127,10 @@ export default function App() {
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
   return (
-    <InstanceProvider>
-      <AppShell />
-    </InstanceProvider>
+    <AuthProvider>
+      <InstanceProvider>
+        <AppShell />
+      </InstanceProvider>
+    </AuthProvider>
   );
 }

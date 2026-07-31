@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import fs from 'fs';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { listBackups, createBackup, deleteBackup, getBackupSchedule, updateBackupSchedule } from '../services/backup.js';
 import { stopServer, startServer } from '../services/palserver.js';
@@ -11,9 +11,9 @@ import { broadcast } from '../ws.js';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/', (req, res) => res.json(listBackups(req.instance!.id)));
+router.get('/', requirePermission('backups.view'), (req, res) => res.json(listBackups(req.instance!.id)));
 
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('backups.create'), async (req, res) => {
   try {
     const b = await createBackup(req.instance!, 'manual');
     logAction(req.instance!.id, 'backup.create', b.filename);
@@ -21,7 +21,7 @@ router.post('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requirePermission('backups.delete'), (req, res) => {
   try {
     deleteBackup(parseInt(req.params.id, 10), req.instance!.id);
     logAction(req.instance!.id, 'backup.delete', `id=${req.params.id}`);
@@ -29,7 +29,7 @@ router.delete('/:id', (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.get('/:id/download', (req, res) => {
+router.get('/:id/download', requirePermission('backups.view'), (req, res) => {
   const b = listBackups(req.instance!.id).find((x) => x.id === parseInt(req.params.id, 10));
   if (!b || !fs.existsSync(b.filepath)) { res.status(404).json({ error: 'Not found' }); return; }
   res.download(b.filepath, b.filename);
@@ -38,12 +38,12 @@ router.get('/:id/download', (req, res) => {
 // Track active restores so the UI can query progress without a WS connection
 const restoreProgress = new Map<number, { step: string; done: boolean; error: string | null }>();
 
-router.get('/:id/restore/status', (req, res) => {
+router.get('/:id/restore/status', requirePermission('backups.restore'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   res.json(restoreProgress.get(id) ?? { step: '', done: true, error: null });
 });
 
-router.post('/:id/restore', async (req, res) => {
+router.post('/:id/restore', requirePermission('backups.restore'), async (req, res) => {
   const inst = req.instance!;
   const b = listBackups(inst.id).find((x) => x.id === parseInt(req.params.id, 10));
   if (!b || !fs.existsSync(b.filepath)) { res.status(404).json({ error: 'Not found' }); return; }
@@ -94,11 +94,11 @@ router.post('/:id/restore', async (req, res) => {
 });
 
 // Backup schedule configuration
-router.get('/schedule', (req, res) => {
+router.get('/schedule', requirePermission('backups.view'), (req, res) => {
   res.json(getBackupSchedule(req.instance!.id));
 });
 
-router.patch('/schedule', (req, res) => {
+router.patch('/schedule', requirePermission('backups.create'), (req, res) => {
   try {
     updateBackupSchedule(req.instance!, req.body);
     logAction(req.instance!.id, 'backup.schedule.update', JSON.stringify(req.body));

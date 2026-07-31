@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getDb } from '../db/index.js';
 import type { RconMacro } from '../db/types.js';
@@ -9,14 +9,14 @@ import { logAction } from '../services/audit.js';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/', (req, res) => {
+router.get('/', requirePermission('macros.manage'), (req, res) => {
   const rows = getDb()
     .prepare('SELECT * FROM rcon_macros WHERE instance_id = ? ORDER BY sort_order ASC, created_at ASC')
     .all(req.instance!.id) as RconMacro[];
   res.json(rows);
 });
 
-router.post('/', (req, res) => {
+router.post('/', requirePermission('macros.manage'), (req, res) => {
   const inst = req.instance!;
   const { name, command, description = '', color = '#a79fc7' } = req.body as Partial<RconMacro>;
   if (!name || !command) { res.status(400).json({ error: 'name and command required' }); return; }
@@ -27,7 +27,7 @@ router.post('/', (req, res) => {
   res.json({ id: result.lastInsertRowid });
 });
 
-router.patch('/:id', (req, res) => {
+router.patch('/:id', requirePermission('macros.manage'), (req, res) => {
   const inst = req.instance!;
   const { name, command, description, color, sort_order } = req.body as Partial<RconMacro>;
   const fields: string[] = [];
@@ -43,7 +43,7 @@ router.patch('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requirePermission('macros.manage'), (req, res) => {
   const inst = req.instance!;
   const row = getDb().prepare('SELECT name FROM rcon_macros WHERE id = ? AND instance_id = ?')
     .get(parseInt(req.params.id, 10), inst.id) as { name: string } | undefined;
@@ -54,7 +54,7 @@ router.delete('/:id', (req, res) => {
 });
 
 // Run a macro immediately
-router.post('/:id/run', async (req, res) => {
+router.post('/:id/run', requirePermission('macros.manage'), async (req, res) => {
   const inst = req.instance!;
   const macro = getDb()
     .prepare('SELECT * FROM rcon_macros WHERE id = ? AND instance_id = ?')

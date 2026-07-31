@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getDb } from '../db/index.js';
 import type { BroadcastSchedule } from '../db/types.js';
@@ -9,14 +9,14 @@ import { logAction } from '../services/audit.js';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/', (req, res) => {
+router.get('/', requirePermission('broadcasts.manage'), (req, res) => {
   const rows = getDb()
     .prepare('SELECT * FROM broadcast_schedules WHERE instance_id = ? ORDER BY created_at ASC')
     .all(req.instance!.id) as BroadcastSchedule[];
   res.json(rows);
 });
 
-router.post('/', (req, res) => {
+router.post('/', requirePermission('broadcasts.manage'), (req, res) => {
   const inst = req.instance!;
   const { name, message, cron, enabled = 1 } = req.body as Partial<BroadcastSchedule & { enabled: number }>;
   if (!name || !message || !cron) { res.status(400).json({ error: 'name, message, and cron required' }); return; }
@@ -28,7 +28,7 @@ router.post('/', (req, res) => {
   res.json({ id: result.lastInsertRowid });
 });
 
-router.patch('/:id', (req, res) => {
+router.patch('/:id', requirePermission('broadcasts.manage'), (req, res) => {
   const inst = req.instance!;
   const { name, message, cron, enabled } = req.body as Partial<BroadcastSchedule>;
   const fields: string[] = [];
@@ -44,7 +44,7 @@ router.patch('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requirePermission('broadcasts.manage'), (req, res) => {
   const inst = req.instance!;
   const row = getDb().prepare('SELECT name FROM broadcast_schedules WHERE id = ? AND instance_id = ?')
     .get(parseInt(req.params.id, 10), inst.id) as { name: string } | undefined;

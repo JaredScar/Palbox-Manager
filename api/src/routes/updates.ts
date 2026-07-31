@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { resolveInstance } from '../middleware/instance';
 import { getBuildInfo, checkForUpdate, runUpdate, getUpdateHistory } from '../services/steamcmd';
 import { stopServer, startServer } from '../services/palserver';
@@ -11,19 +11,19 @@ import { pushNotification } from '../services/notifications';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/', (req, res) => {
+router.get('/', requirePermission('updates.view'), (req, res) => {
   const inst = req.instance!;
   res.json({ ...getBuildInfo(inst), history: getUpdateHistory(inst.id) });
 });
 
-router.post('/check', async (req, res) => {
+router.post('/check', requirePermission('updates.view'), async (req, res) => {
   try { res.json(await checkForUpdate(req.instance!)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
 const updatingInstances = new Set<number>();
 
-router.post('/apply', async (req, res) => {
+router.post('/apply', requirePermission('updates.apply'), async (req, res) => {
   const inst = req.instance!;
   if (updatingInstances.has(inst.id)) { res.status(409).json({ error: 'Update already in progress' }); return; }
   updatingInstances.add(inst.id);
@@ -54,12 +54,12 @@ router.post('/apply', async (req, res) => {
 });
 
 // ── Scheduled restarts ────────────────────────────────────────────────────
-router.get('/schedule', (req, res) => {
+router.get('/schedule', requirePermission('restarts.view'), (req, res) => {
   const sched = getSchedule(req.instance!.id);
   res.json({ ...sched, nextRestart: getNextRestart(req.instance!.id) });
 });
 
-router.patch('/schedule', (req, res) => {
+router.patch('/schedule', requirePermission('restarts.manage'), (req, res) => {
   const inst = req.instance!;
   const patch = req.body as Parameters<typeof updateSchedule>[1];
   const updated = updateSchedule(inst.id, patch);

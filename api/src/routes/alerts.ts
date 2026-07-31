@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getDb } from '../db/index.js';
 import type { AlertRule } from '../db/types.js';
@@ -8,14 +8,14 @@ import { logAction } from '../services/audit.js';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/', (req, res) => {
+router.get('/', requirePermission('alerts.manage'), (req, res) => {
   const rows = getDb()
     .prepare('SELECT * FROM alert_rules WHERE instance_id = ? ORDER BY created_at ASC')
     .all(req.instance!.id) as AlertRule[];
   res.json(rows);
 });
 
-router.post('/', (req, res) => {
+router.post('/', requirePermission('alerts.manage'), (req, res) => {
   const inst = req.instance!;
   const { name, metric, operator, threshold, cooldown_m = 30, enabled = 1 } = req.body as Partial<AlertRule & { enabled: number; cooldown_m: number }>;
   if (!name || !metric || !operator || threshold === undefined) {
@@ -28,7 +28,7 @@ router.post('/', (req, res) => {
   res.json({ id: result.lastInsertRowid });
 });
 
-router.patch('/:id', (req, res) => {
+router.patch('/:id', requirePermission('alerts.manage'), (req, res) => {
   const inst = req.instance!;
   const { name, metric, operator, threshold, cooldown_m, enabled } = req.body as Partial<AlertRule>;
   const fields: string[] = [];
@@ -45,7 +45,7 @@ router.patch('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requirePermission('alerts.manage'), (req, res) => {
   const inst = req.instance!;
   const row = getDb().prepare('SELECT name FROM alert_rules WHERE id = ? AND instance_id = ?')
     .get(parseInt(req.params.id, 10), inst.id) as { name: string } | undefined;

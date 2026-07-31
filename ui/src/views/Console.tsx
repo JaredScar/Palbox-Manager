@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { useInstance } from '../context/InstanceContext';
+import { usePermission } from '../hooks/usePermission';
 import { Button } from '../components/ui/Button';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { cn } from '../lib/cn';
@@ -36,6 +37,8 @@ const MACRO_COLORS = ['#a79fc7', '#2fd9e8', '#7ce666', '#ffd447', '#ff9d3d', '#b
 
 export function Console() {
   const { api, active } = useInstance();
+  const canRcon      = usePermission('console.rcon');
+  const canMacros    = usePermission('macros.manage');
   const [tab, setTab] = useState<'live' | 'log'>('live');
   const [lines, setLines] = useState<LogLine[]>([]);
   const [cmd, setCmd] = useState('');
@@ -232,30 +235,34 @@ export function Console() {
                   <div ref={bottomRef} />
                 </div>
               </div>
-              <div className="flex gap-2 relative">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    placeholder="RCON command — ↑↓ history, Tab to autocomplete"
-                    value={cmd}
-                    onChange={(e) => handleCmdChange(e.target.value)}
-                    onKeyDown={handleCmdKey}
-                    disabled={sending}
-                    className="w-full font-mono text-[13px] focus:border-lime focus:outline-none disabled:opacity-50"
-                  />
-                  {suggestions.length > 0 && (
-                    <div className="absolute bottom-[calc(100%+4px)] left-0 right-0 bg-panel border border-line rounded-xl shadow-xl overflow-hidden z-50">
-                      {suggestions.map((s) => (
-                        <button key={s} onClick={() => { setCmd(s); setSuggestions([]); }}
-                          className="block w-full text-left px-3 py-2 font-mono text-[12.5px] text-fog hover:bg-white/[0.06] hover:text-bone transition-colors">
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+              {canRcon ? (
+                <div className="flex gap-2 relative">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      placeholder="RCON command — ↑↓ history, Tab to autocomplete"
+                      value={cmd}
+                      onChange={(e) => handleCmdChange(e.target.value)}
+                      onKeyDown={handleCmdKey}
+                      disabled={sending}
+                      className="w-full font-mono text-[13px] focus:border-lime focus:outline-none disabled:opacity-50"
+                    />
+                    {suggestions.length > 0 && (
+                      <div className="absolute bottom-[calc(100%+4px)] left-0 right-0 bg-panel border border-line rounded-xl shadow-xl overflow-hidden z-50">
+                        {suggestions.map((s) => (
+                          <button key={s} onClick={() => { setCmd(s); setSuggestions([]); }}
+                            className="block w-full text-left px-3 py-2 font-mono text-[12.5px] text-fog hover:bg-white/[0.06] hover:text-bone transition-colors">
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <Button variant="lime" onClick={send} loading={sending} disabled={!cmd.trim()}>Send</Button>
                 </div>
-                <Button variant="lime" onClick={send} loading={sending} disabled={!cmd.trim()}>Send</Button>
-              </div>
+              ) : (
+                <div className="text-[12px] text-fog/50 italic text-center py-2">RCON access not permitted for your role.</div>
+              )}
             </>
           ) : (
             <>
@@ -288,10 +295,12 @@ export function Console() {
         <div className="bg-panel border border-line rounded-2xl flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-line/50">
             <div className="text-[11px] uppercase tracking-[0.1em] text-fog font-semibold">Macros</div>
-            <button onClick={() => setShowAddMacro((s) => !s)}
-              className="w-5 h-5 rounded-md bg-panel-raised border border-line text-fog hover:text-bone flex items-center justify-center text-[14px] transition-colors">
-              {showAddMacro ? '−' : '+'}
-            </button>
+            {canMacros && (
+              <button onClick={() => setShowAddMacro((s) => !s)}
+                className="w-5 h-5 rounded-md bg-panel-raised border border-line text-fog hover:text-bone flex items-center justify-center text-[14px] transition-colors">
+                {showAddMacro ? '−' : '+'}
+              </button>
+            )}
           </div>
 
           {showAddMacro && (

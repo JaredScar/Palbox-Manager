@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 
 const router = Router({ mergeParams: true });
@@ -8,7 +8,7 @@ const router = Router({ mergeParams: true });
  * GET /api/instances/:instanceId/uptime
  * Returns uptime events and computed SLA stats for the last N days (default 30).
  */
-router.get('/', requireAuth, (req, res) => {
+router.get('/', requireAuth, requirePermission('server.view'), (req, res) => {
   const instanceId = parseInt(req.params.instanceId, 10);
   const days = Math.min(parseInt(String(req.query.days ?? '30'), 10), 365);
   const since = Math.floor(Date.now() / 1000) - days * 86400;

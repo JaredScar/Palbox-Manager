@@ -2,22 +2,24 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '../../lib/cn';
 import { Instance } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 
 const NAV = [
-  { path: '/',          label: 'Dashboard', accent: '#ff5d73', icon: <DashIcon /> },
-  { path: '/players',   label: 'Players',   accent: '#ff9d3d', icon: <PlayersIcon /> },
-  { path: '/bans',      label: 'Ban manager', accent: '#ff5c5c', icon: <BanIcon /> },
-  { path: '/backups',   label: 'Backups',   accent: '#ffd447', icon: <BackupsIcon /> },
-  { path: '/updates',   label: 'Updates',   accent: '#b27cf2', icon: <UpdatesIcon /> },
-  { path: '/restarts',  label: 'Restarts',  accent: '#f97316', icon: <RestartsIcon /> },
-  { path: '/metrics',   label: 'Metrics',   accent: '#2fd9e8', icon: <MetricsIcon /> },
-  { path: '/triggers',  label: 'Triggers',  accent: '#f43f5e', icon: <TriggersIcon /> },
-  { path: '/world',     label: 'World Map', accent: '#22d3ee', icon: <WorldIcon /> },
-  { path: '/mods',      label: 'Mods',      accent: '#3fd8b4', icon: <ModsIcon /> },
-  { path: '/console',   label: 'Console',   accent: '#7ce666', icon: <ConsoleIcon /> },
-  { path: '/cluster',   label: 'Cluster',   accent: '#ff9d3d', icon: <ClusterIcon /> },
-  { path: '/audit',     label: 'Audit log', accent: '#a79fc7', icon: <AuditIcon /> },
-  { path: '/settings',  label: 'Settings',  accent: '#a79fc7', icon: <SettingsIcon /> },
+  { path: '/',          label: 'Dashboard',   accent: '#ff5d73', icon: <DashIcon />,     permission: 'server.view' },
+  { path: '/players',   label: 'Players',     accent: '#ff9d3d', icon: <PlayersIcon />,  permission: 'players.view' },
+  { path: '/bans',      label: 'Ban manager', accent: '#ff5c5c', icon: <BanIcon />,      permission: 'players.ban' },
+  { path: '/backups',   label: 'Backups',     accent: '#ffd447', icon: <BackupsIcon />,  permission: 'backups.view' },
+  { path: '/updates',   label: 'Updates',     accent: '#b27cf2', icon: <UpdatesIcon />,  permission: 'updates.view' },
+  { path: '/restarts',  label: 'Restarts',    accent: '#f97316', icon: <RestartsIcon />, permission: 'restarts.view' },
+  { path: '/metrics',   label: 'Metrics',     accent: '#2fd9e8', icon: <MetricsIcon />,  permission: 'metrics.view' },
+  { path: '/triggers',  label: 'Triggers',    accent: '#f43f5e', icon: <TriggersIcon />, permission: 'triggers.manage' },
+  { path: '/world',     label: 'World Map',   accent: '#22d3ee', icon: <WorldIcon />,    permission: 'world.view' },
+  { path: '/mods',      label: 'Mods',        accent: '#3fd8b4', icon: <ModsIcon />,     permission: 'mods.view' },
+  { path: '/console',   label: 'Console',     accent: '#7ce666', icon: <ConsoleIcon />,  permission: 'console.view' },
+  { path: '/cluster',   label: 'Cluster',     accent: '#ff9d3d', icon: <ClusterIcon />,  permission: 'cluster.view' },
+  { path: '/audit',     label: 'Audit log',   accent: '#a79fc7', icon: <AuditIcon />,    permission: 'audit.view' },
+  { path: '/users',     label: 'Users & Roles', accent: '#c084fc', icon: <UsersIcon />,  permission: 'users.manage' },
+  { path: '/settings',  label: 'Settings',    accent: '#a79fc7', icon: <SettingsIcon />, permission: 'settings.view' },
 ];
 
 interface SidebarProps {
@@ -30,6 +32,7 @@ interface SidebarProps {
 
 export function Sidebar({ instances, active, setActiveId, isElectron, onClose }: SidebarProps) {
   const [open, setOpen] = useState(false);
+  const { can, user } = useAuth();
 
   return (
     <aside className="w-[240px] shrink-0 bg-panel border-r border-line flex flex-col px-3.5 py-5 h-full overflow-hidden overflow-y-auto">
@@ -97,7 +100,7 @@ export function Sidebar({ instances, active, setActiveId, isElectron, onClose }:
 
       {/* Navigation */}
       <nav className="flex flex-col gap-0.5">
-        {NAV.map(({ path, label, accent, icon }) => (
+        {NAV.filter(({ permission }) => can(permission)).map(({ path, label, accent, icon }) => (
           <NavLink
             key={path}
             to={path}
@@ -129,10 +132,18 @@ export function Sidebar({ instances, active, setActiveId, isElectron, onClose }:
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="mt-auto pt-4 border-t border-line flex justify-between font-mono text-[11px] text-fog">
-        <span>v0.1.0</span>
-        <span>{isElectron ? 'Desktop' : 'Browser'}</span>
+      {/* Footer — logged-in user */}
+      <div className="mt-auto pt-4 border-t border-line font-mono text-[11px] text-fog space-y-1">
+        {user && (
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-bone/70">{user.username}</span>
+            <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded bg-panel-raised capitalize">{user.role}</span>
+          </div>
+        )}
+        <div className="flex justify-between">
+          <span>v0.1.0</span>
+          <span>{isElectron ? 'Desktop' : 'Browser'}</span>
+        </div>
       </div>
     </aside>
   );
@@ -153,3 +164,4 @@ function SettingsIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="cu
 function TriggersIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>; }
 function WorldIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14.5 14.5 0 010 18M12 3a14.5 14.5 0 000 18"/></svg>; }
 function BanIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M4.93 4.93l14.14 14.14"/></svg>; }
+function UsersIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M23 11l-2.5 2.5-1.5-1.5"/></svg>; }

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getStatus, startServer, stopServer, restartServer, getCpuAndMemory } from '../services/palserver.js';
 import { rconExec } from '../lib/rcon.js';
@@ -14,7 +14,7 @@ import { getOnlinePlayers, clearPlayers } from '../services/playerTracker.js';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/status', async (req, res) => {
+router.get('/status', requirePermission('server.view'), async (req, res) => {
   const inst = req.instance!;
   const [{ status, uptime }, { cpuPct, memMb }] = await Promise.all([
     getStatus(inst),
@@ -65,14 +65,14 @@ router.get('/status', async (req, res) => {
   });
 });
 
-router.get('/metrics', (req, res) => {
+router.get('/metrics', requirePermission('metrics.view'), (req, res) => {
   const hours = parseInt(String(req.query.hours ?? '24'), 10);
   const { getMetrics } = require('../services/watchdog');
   res.json(getMetrics(req.instance!.id, hours));
 });
 
 // Metrics export (CSV / JSON) with custom date range
-router.get('/metrics/export', (req, res) => {
+router.get('/metrics/export', requirePermission('metrics.view'), (req, res) => {
   const nowSec = Math.floor(Date.now() / 1000);
   const from = parseInt(String(req.query.from ?? nowSec - 7 * 86400), 10);
   const to   = parseInt(String(req.query.to   ?? nowSec), 10);
@@ -98,7 +98,7 @@ router.get('/metrics/export', (req, res) => {
 });
 
 // Player peak hours — 7×24 heatmap (avg player count per day-of-week + hour)
-router.get('/metrics/heatmap', (req, res) => {
+router.get('/metrics/heatmap', requirePermission('metrics.view'), (req, res) => {
   const rows = getDb()
     .prepare(`
       SELECT
@@ -115,7 +115,7 @@ router.get('/metrics/heatmap', (req, res) => {
   res.json(rows);
 });
 
-router.post('/start', async (req, res) => {
+router.post('/start', requirePermission('server.start'), async (req, res) => {
   try {
     await startServer(req.instance!);
     logAction(req.instance!.id, 'server.start');
@@ -123,7 +123,7 @@ router.post('/start', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.post('/stop', async (req, res) => {
+router.post('/stop', requirePermission('server.stop'), async (req, res) => {
   try {
     await sendDiscord(req.instance!, `**Palbox** — \`${req.instance!.name}\` is stopping.`, 'server_offline');
     await stopServer(req.instance!);
@@ -132,7 +132,7 @@ router.post('/stop', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.post('/restart', async (req, res) => {
+router.post('/restart', requirePermission('server.restart'), async (req, res) => {
   try {
     await restartServer(req.instance!);
     logAction(req.instance!.id, 'server.restart');
@@ -140,7 +140,7 @@ router.post('/restart', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.post('/save', async (req, res) => {
+router.post('/save', requirePermission('server.save'), async (req, res) => {
   const inst = req.instance!;
   try {
     await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'Save');
@@ -149,7 +149,7 @@ router.post('/save', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.post('/rcon', async (req, res) => {
+router.post('/rcon', requirePermission('console.rcon'), async (req, res) => {
   const inst = req.instance!;
   const { command } = req.body as { command?: string };
   if (!command) { res.status(400).json({ error: 'command required' }); return; }
@@ -160,7 +160,7 @@ router.post('/rcon', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.get('/watchdog', (req, res) => {
+router.get('/watchdog', requirePermission('server.view'), (req, res) => {
   const { getWatchdogEvents } = require('../services/watchdog');
   res.json({
     armed: isArmed(req.instance!.id),
@@ -169,7 +169,7 @@ router.get('/watchdog', (req, res) => {
   });
 });
 
-router.patch('/watchdog', (req, res) => {
+router.patch('/watchdog', requirePermission('settings.manage'), (req, res) => {
   const { setArmed } = require('../services/watchdog');
   const { armed } = req.body as { armed?: boolean };
   if (armed !== undefined) setArmed(req.instance!.id, armed);
@@ -177,7 +177,7 @@ router.patch('/watchdog', (req, res) => {
 });
 
 // World overview — key settings parsed from the ini file
-router.get('/world', (req, res) => {
+router.get('/world', requirePermission('world.view'), (req, res) => {
   try {
     const s = readSettings(req.instance!);
     res.json({

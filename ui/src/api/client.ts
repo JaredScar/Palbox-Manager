@@ -189,15 +189,24 @@ export const authApi = {
     request<{ ok?: boolean; requireTotp?: boolean; role?: string; username?: string }>(
       '/auth/login', { method: 'POST', body: JSON.stringify({ username, password, totpCode }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
-  me:     () => request<{ authenticated: boolean; username?: string; role?: string }>('/auth/me'),
+  me:     () => request<{ authenticated: boolean; username?: string; role?: string; permissions?: string[] }>('/auth/me'),
 
   // User management
   listUsers: () => request<UserAccount[]>('/auth/users'),
-  createUser: (username: string, password: string, role: string) =>
-    request<{ id: number }>('/auth/users', { method: 'POST', body: JSON.stringify({ username, password, role }) }),
-  updateUser: (id: number, data: { password?: string; role?: string }) =>
+  createUser: (username: string, password: string, role: string, role_id?: number) =>
+    request<{ id: number }>('/auth/users', { method: 'POST', body: JSON.stringify({ username, password, role, role_id }) }),
+  updateUser: (id: number, data: { password?: string; role?: string; role_id?: number | null }) =>
     request(`/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteUser: (id: number) => request(`/auth/users/${id}`, { method: 'DELETE' }),
+
+  // Role management
+  listRoles: () => request<Role[]>('/auth/roles'),
+  listAllPermissions: () => request<string[]>('/auth/roles/permissions'),
+  createRole: (name: string, description: string, permissions: string[]) =>
+    request<{ id: number }>('/auth/roles', { method: 'POST', body: JSON.stringify({ name, description, permissions }) }),
+  updateRole: (id: number, data: { description?: string; permissions?: string[] }) =>
+    request(`/auth/roles/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteRole: (id: number) => request(`/auth/roles/${id}`, { method: 'DELETE' }),
 
   // TOTP 2FA
   totpSetup: () => request<{ secret: string; qrDataUrl: string; otpAuthUrl: string }>('/auth/totp/setup', { method: 'POST' }),
@@ -426,10 +435,21 @@ export interface UptimeData {
 export interface UserAccount {
   id: number;
   username: string;
-  role: 'owner' | 'operator' | 'viewer';
+  role: string;
+  role_id: number | null;
+  effective_role: string;
   totp_enabled: number;
   created_at: number;
   last_login: number | null;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  description: string;
+  permissions: string;   // JSON array stored as string from SQLite
+  is_builtin: number;
+  created_at: number;
 }
 
 export interface PalRestInfo {

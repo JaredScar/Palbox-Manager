@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import https from 'https';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { resolveInstance } from '../middleware/instance';
 import { getDb } from '../db';
 import { rconExec } from '../lib/rcon';
@@ -19,14 +19,14 @@ interface Player {
   banned: number;
 }
 
-router.get('/', (req, res) => {
+router.get('/', requirePermission('players.view'), (req, res) => {
   res.json(
     getDb().prepare('SELECT * FROM players WHERE instance_id = ? ORDER BY last_seen DESC').all(req.instance!.id),
   );
 });
 
 // Top players by playtime
-router.get('/leaderboard', (req, res) => {
+router.get('/leaderboard', requirePermission('players.view'), (req, res) => {
   const limit = parseInt(String(req.query.limit ?? '10'), 10);
   res.json(
     getDb()
@@ -36,7 +36,7 @@ router.get('/leaderboard', (req, res) => {
 });
 
 // All banned players for the Ban Manager page
-router.get('/bans', (req, res) => {
+router.get('/bans', requirePermission('players.ban'), (req, res) => {
   const now = Math.floor(Date.now() / 1000);
   res.json(
     getDb()
@@ -48,7 +48,7 @@ router.get('/bans', (req, res) => {
 // Geo / Steam profile country lookup (server-side proxy to avoid CORS)
 const geoCache = new Map<string, { country: string; flag: string; ts: number }>();
 
-router.get('/:steamId/geo', (req, res) => {
+router.get('/:steamId/geo', requirePermission('players.view'), (req, res) => {
   const { steamId } = req.params;
   const cached = geoCache.get(steamId);
   if (cached && Date.now() - cached.ts < 24 * 3600 * 1000) { res.json(cached); return; }
@@ -90,7 +90,7 @@ router.post('/', (req, res) => {
   res.json({ ok: true });
 });
 
-router.patch('/:steamId/whitelist', (req, res) => {
+router.patch('/:steamId/whitelist', requirePermission('players.whitelist'), (req, res) => {
   const { whitelisted } = req.body as { whitelisted?: boolean };
   if (whitelisted === undefined) { res.status(400).json({ error: 'whitelisted required' }); return; }
   getDb().prepare('UPDATE players SET whitelisted = ? WHERE instance_id = ? AND steam_id = ?')
@@ -98,7 +98,7 @@ router.patch('/:steamId/whitelist', (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/:steamId/kick', async (req, res) => {
+router.post('/:steamId/kick', requirePermission('players.kick'), async (req, res) => {
   const inst = req.instance!;
   try {
     await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, `KickPlayer ${req.params.steamId}`);
@@ -106,7 +106,7 @@ router.post('/:steamId/kick', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.post('/:steamId/ban', async (req, res) => {
+router.post('/:steamId/ban', requirePermission('players.ban'), async (req, res) => {
   const inst = req.instance!;
   const { reason, expires } = req.body as { reason?: string; expires?: number };
   try {
@@ -118,7 +118,7 @@ router.post('/:steamId/ban', async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.post('/:steamId/unban', async (req, res) => {
+router.post('/:steamId/unban', requirePermission('players.ban'), async (req, res) => {
   const inst = req.instance!;
   try {
     await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, `UnBanPlayer ${req.params.steamId}`);
@@ -129,7 +129,7 @@ router.post('/:steamId/unban', async (req, res) => {
 });
 
 // Player event history
-router.get('/events', (req, res) => {
+router.get('/events', requirePermission('players.view'), (req, res) => {
   const limit = parseInt(String(req.query.limit ?? '100'), 10);
   res.json(
     getDb().prepare(

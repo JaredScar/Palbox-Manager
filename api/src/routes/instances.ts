@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { getDb } from '../db';
 import type { Instance } from '../db/types';
 import { startBackupScheduler } from '../services/backup';
@@ -15,7 +15,7 @@ router.get('/', (_req, res) => {
   res.json(instances);
 });
 
-router.post('/', (req, res) => {
+router.post('/', requirePermission('settings.manage'), (req, res) => {
   const body = req.body as Partial<Instance>;
   const { name, service_name, save_dir, backup_dir, settings_ini } = body;
   if (!name || !service_name || !save_dir || !backup_dir || !settings_ini) {
@@ -55,7 +55,7 @@ router.post('/', (req, res) => {
   res.status(201).json(inst);
 });
 
-router.patch('/:id', (req, res) => {
+router.patch('/:id', requirePermission('settings.manage'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const db = getDb();
   const inst = db.prepare('SELECT * FROM instances WHERE id = ?').get(id) as Instance | undefined;
@@ -76,7 +76,7 @@ router.patch('/:id', (req, res) => {
   res.json(updated);
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requirePermission('settings.manage'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const db = getDb();
   const count = (db.prepare('SELECT COUNT(*) as c FROM instances').get() as { c: number }).c;

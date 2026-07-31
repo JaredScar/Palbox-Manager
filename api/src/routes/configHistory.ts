@@ -1,22 +1,22 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { listSnapshots, getSnapshot, diffSnapshots } from '../services/configHistory.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/', (req, res) => {
+router.get('/', requirePermission('config.view'), (req, res) => {
   res.json(listSnapshots(req.instance!.id));
 });
 
-router.get('/:id', (req, res) => {
+router.get('/:id', requirePermission('config.view'), (req, res) => {
   const snap = getSnapshot(parseInt(req.params.id, 10), req.instance!.id);
   if (!snap) { res.status(404).json({ error: 'Snapshot not found' }); return; }
   res.json(snap);
 });
 
-router.get('/:id/diff', (req, res) => {
+router.get('/:id/diff', requirePermission('config.view'), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const snap = getSnapshot(id, req.instance!.id);
   if (!snap) { res.status(404).json({ error: 'Snapshot not found' }); return; }

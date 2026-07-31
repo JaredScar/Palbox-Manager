@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { cfg } from '../config';
+import { ALL_PERMISSIONS, BUILTIN_ROLE_PERMISSIONS, BUILTIN_ROLE_DESCRIPTIONS } from '../permissions';
 
 let _db: Database.Database | null = null;
 
@@ -269,6 +270,16 @@ function applySchema(db: Database.Database): void {
       read        INTEGER NOT NULL DEFAULT 0,
       created_at  INTEGER NOT NULL DEFAULT (unixepoch())
     );
+
+    -- ── Custom roles (PAM) ────────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS roles (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
+      permissions TEXT NOT NULL DEFAULT '[]',
+      is_builtin  INTEGER NOT NULL DEFAULT 0,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    );
   `);
 
   // ── Migrations (idempotent column additions) ──────────────────────────────
@@ -278,6 +289,22 @@ function applySchema(db: Database.Database): void {
   addColIfMissing('scheduled_restarts', 'cron_expr', "TEXT NOT NULL DEFAULT ''");
   addColIfMissing('players', 'ban_reason',  "TEXT");
   addColIfMissing('players', 'ban_expires', "INTEGER");
+  addColIfMissing('users', 'role_id', "INTEGER REFERENCES roles(id) ON DELETE SET NULL");
+
+  // ── Seed built-in roles ───────────────────────────────────────────────────
+  for (const roleName of ['owner', 'operator', 'viewer'] as const) {
+    const existing = db.prepare('SELECT id FROM roles WHERE name = ?').get(roleName);
+    if (!existing) {
+      const perms = JSON.stringify(BUILTIN_ROLE_PERMISSIONS[roleName]);
+      db.prepare(
+        'INSERT INTO roles (name, description, permissions, is_builtin) VALUES (?, ?, ?, 1)',
+      ).run(roleName, BUILTIN_ROLE_DESCRIPTIONS[roleName], perms);
+    } else {
+      // Keep permissions in sync with code definitions
+      db.prepare('UPDATE roles SET permissions = ?, is_builtin = 1 WHERE name = ?')
+        .run(JSON.stringify(BUILTIN_ROLE_PERMISSIONS[roleName]), roleName);
+    }
+  }
 
   // Seed the default instance from env config if none exist
   const count = (db.prepare('SELECT COUNT(*) as c FROM instances').get() as { c: number }).c;

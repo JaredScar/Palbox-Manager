@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import os from 'os';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { resolveInstance } from '../middleware/instance';
 import { listMods, toggleMod, installModZip, removeMod } from '../services/mods';
 
@@ -18,9 +18,9 @@ const upload = multer({
   },
 });
 
-router.get('/', (req, res) => res.json(listMods(req.instance!.id)));
+router.get('/', requirePermission('mods.view'), (req, res) => res.json(listMods(req.instance!.id)));
 
-router.post('/upload', upload.single('mod'), async (req, res) => {
+router.post('/upload', requirePermission('mods.manage'), upload.single('mod'), async (req, res) => {
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
   const name = (req.body as { name?: string }).name ?? path.basename(req.file.originalname, '.zip');
   try {
@@ -28,14 +28,14 @@ router.post('/upload', upload.single('mod'), async (req, res) => {
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.patch('/:id/toggle', (req, res) => {
+router.patch('/:id/toggle', requirePermission('mods.manage'), (req, res) => {
   const { enabled } = req.body as { enabled?: boolean };
   if (enabled === undefined) { res.status(400).json({ error: 'enabled required' }); return; }
   try { toggleMod(parseInt(req.params.id, 10), req.instance!.id, enabled); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requirePermission('mods.manage'), (req, res) => {
   try { removeMod(parseInt(req.params.id, 10), req.instance!); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });

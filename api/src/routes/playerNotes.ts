@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { logAction } from '../services/audit.js';
 
@@ -7,7 +7,7 @@ const router = Router({ mergeParams: true });
 
 // ── Notes ────────────────────────────────────────────────────────────────────
 
-router.get('/:steamId/notes', requireAuth, (req, res) => {
+router.get('/:steamId/notes', requireAuth, requirePermission('players.notes'), (req, res) => {
   const instanceId = parseInt(req.params.instanceId, 10);
   const { steamId } = req.params;
   const notes = getDb()
@@ -16,7 +16,7 @@ router.get('/:steamId/notes', requireAuth, (req, res) => {
   res.json(notes);
 });
 
-router.post('/:steamId/notes', requireAuth, requireRole('operator'), (req, res) => {
+router.post('/:steamId/notes', requireAuth, requirePermission('players.notes'), (req, res) => {
   const instanceId = parseInt(req.params.instanceId, 10);
   const { steamId } = req.params;
   const { note } = req.body as { note?: string };
@@ -29,7 +29,7 @@ router.post('/:steamId/notes', requireAuth, requireRole('operator'), (req, res) 
   res.json({ id: result.lastInsertRowid });
 });
 
-router.delete('/:steamId/notes/:noteId', requireAuth, requireRole('operator'), (req, res) => {
+router.delete('/:steamId/notes/:noteId', requireAuth, requirePermission('players.notes'), (req, res) => {
   const instanceId = parseInt(req.params.instanceId, 10);
   const { steamId, noteId } = req.params;
   getDb().prepare('DELETE FROM player_notes WHERE id = ? AND instance_id = ? AND steam_id = ?')
@@ -39,7 +39,7 @@ router.delete('/:steamId/notes/:noteId', requireAuth, requireRole('operator'), (
 
 // ── Tags ─────────────────────────────────────────────────────────────────────
 
-router.get('/:steamId/tags', requireAuth, (req, res) => {
+router.get('/:steamId/tags', requireAuth, requirePermission('players.notes'), (req, res) => {
   const instanceId = parseInt(req.params.instanceId, 10);
   const { steamId } = req.params;
   const tags = getDb()
@@ -48,7 +48,7 @@ router.get('/:steamId/tags', requireAuth, (req, res) => {
   res.json(tags);
 });
 
-router.put('/:steamId/tags', requireAuth, requireRole('operator'), (req, res) => {
+router.put('/:steamId/tags', requireAuth, requirePermission('players.notes'), (req, res) => {
   const instanceId = parseInt(req.params.instanceId, 10);
   const { steamId } = req.params;
   const { tag, color = '#a79fc7' } = req.body as { tag?: string; color?: string };
@@ -60,7 +60,7 @@ router.put('/:steamId/tags', requireAuth, requireRole('operator'), (req, res) =>
   res.json({ ok: true });
 });
 
-router.delete('/:steamId/tags/:tag', requireAuth, requireRole('operator'), (req, res) => {
+router.delete('/:steamId/tags/:tag', requireAuth, requirePermission('players.notes'), (req, res) => {
   const instanceId = parseInt(req.params.instanceId, 10);
   const { steamId, tag } = req.params;
   getDb().prepare('DELETE FROM player_tags WHERE instance_id = ? AND steam_id = ? AND tag = ?')

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import fs from 'fs';
 import readline from 'readline';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getDb } from '../db/index.js';
 import type { ChatMessage } from '../db/types.js';
@@ -10,7 +10,7 @@ const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
 // Return stored chat messages (captured by log poller)
-router.get('/', (req, res) => {
+router.get('/', requirePermission('console.view'), (req, res) => {
   const limit = Math.min(parseInt(String(req.query.limit ?? '100'), 10), 500);
   const rows = getDb()
     .prepare('SELECT * FROM chat_messages WHERE instance_id = ? ORDER BY captured_at DESC LIMIT ?')
@@ -19,7 +19,7 @@ router.get('/', (req, res) => {
 });
 
 // Return raw log lines (last N lines, with optional search)
-router.get('/log', async (req, res) => {
+router.get('/log', requirePermission('console.view'), async (req, res) => {
   const inst = req.instance!;
   const search = String(req.query.search ?? '').toLowerCase();
   const tail = Math.min(parseInt(String(req.query.tail ?? '200'), 10), 1000);

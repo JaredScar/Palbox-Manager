@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Player, PlayerEvent, PlayerNote, PlayerTag } from '../api/client';
 import { useInstance } from '../context/InstanceContext';
+import { usePermission } from '../hooks/usePermission';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { Tag } from '../components/ui/Tag';
@@ -160,6 +161,10 @@ function PlayerPanel({ player, onClose }: { player: Player; onClose: () => void 
 
 export function Players() {
   const { api } = useInstance();
+  const canKick      = usePermission('players.kick');
+  const canBan       = usePermission('players.ban');
+  const canWhitelist = usePermission('players.whitelist');
+  const canNotes     = usePermission('players.notes');
   const [players, setPlayers] = useState<Player[]>([]);
   const [events, setEvents] = useState<PlayerEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -296,17 +301,23 @@ export function Players() {
                 <td className={tdCls} onClick={(e) => e.stopPropagation()}>
                   <div className="flex gap-1 justify-end">
                     {p.banned ? (
-                      <IconButton label="Unban" onClick={() => handleUnban(p.steam_id)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                      </IconButton>
+                      canBan && (
+                        <IconButton label="Unban" onClick={() => handleUnban(p.steam_id)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        </IconButton>
+                      )
                     ) : (
                       <>
-                        <IconButton label="Kick" onClick={() => handleKick(p.steam_id)}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 6L6 18M6 6l12 12"/></svg>
-                        </IconButton>
-                        <IconButton label="Ban" onClick={() => handleBan(p.steam_id)}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M5 5l14 14"/></svg>
-                        </IconButton>
+                        {canKick && (
+                          <IconButton label="Kick" onClick={() => handleKick(p.steam_id)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 6L6 18M6 6l12 12"/></svg>
+                          </IconButton>
+                        )}
+                        {canBan && (
+                          <IconButton label="Ban" onClick={() => handleBan(p.steam_id)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M5 5l14 14"/></svg>
+                          </IconButton>
+                        )}
                       </>
                     )}
                   </div>
@@ -317,11 +328,13 @@ export function Players() {
         </table>
       </PanelSection>
 
-      <PanelSection title="Whitelist mode" description="Only players in the roster can join when enabled.">
-        <ToggleRow label="Require whitelist to join" description="Recommended once the server is public.">
-          <Switch checked={whitelistMode} onChange={setWhitelistMode} />
-        </ToggleRow>
-      </PanelSection>
+      {canWhitelist && (
+        <PanelSection title="Whitelist mode" description="Only players in the roster can join when enabled.">
+          <ToggleRow label="Require whitelist to join" description="Recommended once the server is public.">
+            <Switch checked={whitelistMode} onChange={setWhitelistMode} />
+          </ToggleRow>
+        </PanelSection>
+      )}
     </ViewWrapper>
   );
 }

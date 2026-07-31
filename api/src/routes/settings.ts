@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requirePermission } from '../middleware/auth';
 import { resolveInstance } from '../middleware/instance';
 import { readSettings, writeSettings, readIniRaw, writeIniRaw } from '../services/ini';
 import { getDb } from '../db';
@@ -8,29 +8,29 @@ import { setArmed } from '../services/watchdog';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
-router.get('/', (req, res) => {
+router.get('/', requirePermission('settings.view'), (req, res) => {
   try { res.json(readSettings(req.instance!)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.patch('/', (req, res) => {
+router.patch('/', requirePermission('settings.manage'), (req, res) => {
   try { writeSettings(req.instance!, req.body as Record<string, string>); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.get('/raw', (req, res) => {
+router.get('/raw', requirePermission('settings.view'), (req, res) => {
   try { res.json({ content: readIniRaw(req.instance!) }); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.put('/raw', (req, res) => {
+router.put('/raw', requirePermission('settings.manage'), (req, res) => {
   const { content } = req.body as { content?: string };
   if (typeof content !== 'string') { res.status(400).json({ error: 'content required' }); return; }
   try { writeIniRaw(req.instance!, content); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
 
-router.get('/app', (req, res) => {
+router.get('/app', requirePermission('settings.view'), (req, res) => {
   const rows = getDb()
     .prepare('SELECT key, value FROM settings WHERE instance_id = ?')
     .all(req.instance!.id) as { key: string; value: string }[];
@@ -39,7 +39,7 @@ router.get('/app', (req, res) => {
   res.json(map);
 });
 
-router.patch('/app', (req, res) => {
+router.patch('/app', requirePermission('settings.manage'), (req, res) => {
   const inst = req.instance!;
   const db = getDb();
   const updates = req.body as Record<string, string>;

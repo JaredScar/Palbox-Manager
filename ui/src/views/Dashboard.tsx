@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ServerStatus, MetricPoint, WorldInfo, MaintenanceState } from '../api/client';
 import { useInstance } from '../context/InstanceContext';
+import { usePermission } from '../hooks/usePermission';
 import { Button } from '../components/ui/Button';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { PanelSection } from '../components/ui/PanelSection';
@@ -49,6 +50,11 @@ const AVATAR_COLORS = ['#ff5d73', '#2fd9e8', '#b27cf2'];
 
 export function Dashboard() {
   const { api, active } = useInstance();
+  const canStart   = usePermission('server.start');
+  const canStop    = usePermission('server.stop');
+  const canRestart = usePermission('server.restart');
+  const canSave    = usePermission('server.save');
+  const canMaint   = usePermission('maintenance.manage');
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [metrics, setMetrics] = useState<MetricPoint[]>([]);
   const [world, setWorld] = useState<WorldInfo | null>(null);
@@ -156,20 +162,26 @@ export function Dashboard() {
             <span className="w-1.5 h-1.5 rounded-full bg-current" />
             Watchdog {status?.watchdogArmed ? 'armed' : 'off'}
           </span>
-          <Button variant="ghost" loading={actionPending === 'restart'} onClick={() => doAction('restart')} disabled={!!actionPending}>
-            Restart
-          </Button>
-          <Button
-            variant={maintenance?.active ? 'primary' : 'ghost'}
-            onClick={toggleMaintenance}
-            disabled={!!actionPending}
-            loading={actionPending === 'maintenance'}
-          >
-            {maintenance?.active ? 'End maintenance' : 'Maintenance'}
-          </Button>
-          <Button variant="danger" loading={actionPending === 'stop'} onClick={() => doAction('stop')} disabled={!!actionPending || !online}>
-            Stop server
-          </Button>
+          {canRestart && (
+            <Button variant="ghost" loading={actionPending === 'restart'} onClick={() => doAction('restart')} disabled={!!actionPending}>
+              Restart
+            </Button>
+          )}
+          {canMaint && (
+            <Button
+              variant={maintenance?.active ? 'primary' : 'ghost'}
+              onClick={toggleMaintenance}
+              disabled={!!actionPending}
+              loading={actionPending === 'maintenance'}
+            >
+              {maintenance?.active ? 'End maintenance' : 'Maintenance'}
+            </Button>
+          )}
+          {canStop && (
+            <Button variant="danger" loading={actionPending === 'stop'} onClick={() => doAction('stop')} disabled={!!actionPending || !online}>
+              Stop server
+            </Button>
+          )}
         </>
       }
     >
@@ -294,18 +306,24 @@ export function Dashboard() {
                 ) : null}
               </div>
               <div className="flex gap-2 mt-3 flex-wrap">
-                <Button variant="lime" loading={actionPending === 'save'} onClick={() => doAction('save')} disabled={!!actionPending || !online}>
-                  Save world
-                </Button>
+                {canSave && (
+                  <Button variant="lime" loading={actionPending === 'save'} onClick={() => doAction('save')} disabled={!!actionPending || !online}>
+                    Save world
+                  </Button>
+                )}
                 {!online ? (
-                  <Button variant="ghost" loading={actionPending === 'start'} onClick={() => doAction('start')} disabled={!!actionPending}>
-                    Start server
-                  </Button>
+                  canStart && (
+                    <Button variant="ghost" loading={actionPending === 'start'} onClick={() => doAction('start')} disabled={!!actionPending}>
+                      Start server
+                    </Button>
+                  )
                 ) : (
-                  <Button variant="ghost" className="text-rust/70 border-rust/20 hover:text-rust hover:border-rust/40"
-                    loading={actionPending === 'stop'} onClick={() => doAction('stop')} disabled={!!actionPending}>
-                    Stop server
-                  </Button>
+                  canStop && (
+                    <Button variant="ghost" className="text-rust/70 border-rust/20 hover:text-rust hover:border-rust/40"
+                      loading={actionPending === 'stop'} onClick={() => doAction('stop')} disabled={!!actionPending}>
+                      Stop server
+                    </Button>
+                  )
                 )}
               </div>
             </div>
