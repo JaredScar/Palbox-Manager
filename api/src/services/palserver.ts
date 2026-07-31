@@ -8,8 +8,12 @@ const execAsync = promisify(exec);
 export type ServerStatus = 'online' | 'offline' | 'starting' | 'stopping';
 
 async function psCommand(cmd: string): Promise<string> {
+  // Use -ExecutionPolicy Bypass so it works under any NSSM/SYSTEM account context.
+  // Escape internal double-quotes by passing the command via -EncodedCommand to avoid
+  // shell quoting issues on Windows when running as a service.
+  const encoded = Buffer.from(cmd, 'utf16le').toString('base64');
   const { stdout } = await execAsync(
-    `powershell -NoProfile -NonInteractive -Command "${cmd}"`,
+    `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
     { timeout: 10_000 },
   );
   return stdout.trim();
@@ -63,21 +67,28 @@ async function checkProcessDirect(inst: Instance): Promise<{ status: ServerStatu
 
 export async function getStatus(inst: Instance): Promise<{ status: ServerStatus; uptime: number | null }> {
   try {
-    // ── 1. Try the Windows service (fast path when NSSM is configured) ──────
+    // ── 1. Try the Windows service (authoritative when NSSM is configured) ──
     if (inst.service_name) {
       try {
         const svcStatus = await psCommand(
           `(Get-Service -Name '${inst.service_name}' -ErrorAction SilentlyContinue).Status`,
         );
-        if (svcStatus === 'Running')      return checkProcessDirect(inst);
         if (svcStatus === 'StartPending') return { status: 'starting', uptime: null };
         if (svcStatus === 'StopPending')  return { status: 'stopping', uptime: null };
-        // 'Stopped' or empty — fall through to direct process check
+        if (svcStatus === 'Stopped')      return { status: 'offline',  uptime: null };
+        if (svcStatus === 'Running') {
+          // Service is running — get process uptime if we can, otherwise trust the service
+          const proc = await checkProcessDirect(inst);
+          return proc.status === 'online'
+            ? proc
+            : { status: 'online', uptime: null }; // trust NSSM even if exe name mismatch
+        }
+        // Empty result = service not found → fall through to direct process check
       } catch { /* service query failed — fall through */ }
     }
 
-    // ── 2. Fall back: check whether the exe is running directly ─────────────
-    // Covers: direct-launch fallback, or service stopped but process still alive.
+    // ── 2. Fallback: check the process directly ──────────────────────────────
+    // Handles: direct-launch (no NSSM), or service_name not configured yet.
     return await checkProcessDirect(inst);
   } catch (err) {
     log.warn(`getStatus(${inst.name}) failed:`, err);
