@@ -29,6 +29,7 @@
     "productName": "Palbox",
     "copyright": "Copyright © 2025 Palbox contributors",
     "electronVersion": "29.0.0",
+    "icon": "build/icon.png",
     "directories": {
       "output": "out",
       "buildResources": "build"
@@ -37,6 +38,11 @@
       "dist/**/*"
     ],
     "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": ["**/*"]
+      },
       {
         "from": "../api/dist",
         "to": "api/dist",
