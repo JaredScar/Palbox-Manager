@@ -245,11 +245,13 @@ export interface BuildInfo {
 export interface RestartSchedule {
   id: number;
   instance_id: number;
-  frequency: 'off' | 'daily' | '12h' | 'weekly';
+  frequency: 'off' | 'hourly' | '3h' | '6h' | '12h' | 'daily' | 'weekly' | 'custom';
   time: string;
+  cron_expr: string;
   timezone: string;
   warn_minutes: number;
   enabled: number;
+  nextRestart: number | null; // unix ms
 }
 
 export interface Player {

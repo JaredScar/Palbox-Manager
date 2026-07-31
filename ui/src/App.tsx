@@ -16,6 +16,7 @@ import { Mods } from './views/Mods';
 import { Console } from './views/Console';
 import { Settings } from './views/Settings';
 import { Audit } from './views/Audit';
+import { Restarts } from './views/Restarts';
 import Cluster from './views/Cluster';
 
 /** True when running inside the Electron desktop shell. */
@@ -44,6 +45,7 @@ function AppShell() {
           <Route path="/metrics"  element={<Metrics />} />
           <Route path="/mods"     element={<Mods />} />
           <Route path="/console"  element={<Console />} />
+          <Route path="/restarts" element={<Restarts />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/audit"    element={<Audit />} />
           <Route path="/cluster"  element={<Cluster />} />

@@ -5,7 +5,7 @@ import { getBuildInfo, checkForUpdate, runUpdate, getUpdateHistory } from '../se
 import { stopServer, startServer } from '../services/palserver';
 import { rconExec } from '../lib/rcon';
 import { broadcast } from '../ws';
-import { getSchedule, updateSchedule, syncScheduler } from '../services/scheduler';
+import { getSchedule, updateSchedule, syncScheduler, getNextRestart } from '../services/scheduler';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -47,14 +47,17 @@ router.post('/apply', async (req, res) => {
 });
 
 // ── Scheduled restarts ────────────────────────────────────────────────────
-router.get('/schedule', (req, res) => res.json(getSchedule(req.instance!.id)));
+router.get('/schedule', (req, res) => {
+  const sched = getSchedule(req.instance!.id);
+  res.json({ ...sched, nextRestart: getNextRestart(req.instance!.id) });
+});
 
 router.patch('/schedule', (req, res) => {
   const inst = req.instance!;
   const patch = req.body as Parameters<typeof updateSchedule>[1];
   const updated = updateSchedule(inst.id, patch);
   syncScheduler(inst);
-  res.json(updated);
+  res.json({ ...updated, nextRestart: getNextRestart(inst.id) });
 });
 
 export default router;

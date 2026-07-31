@@ -113,8 +113,9 @@ function applySchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS scheduled_restarts (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       instance_id INTEGER NOT NULL DEFAULT 1 REFERENCES instances(id) ON DELETE CASCADE,
-      frequency   TEXT NOT NULL DEFAULT 'off' CHECK(frequency IN ('off','daily','12h','weekly')),
+      frequency   TEXT NOT NULL DEFAULT 'off' CHECK(frequency IN ('off','hourly','3h','6h','12h','daily','weekly','custom')),
       time        TEXT NOT NULL DEFAULT '06:00',
+      cron_expr   TEXT NOT NULL DEFAULT '',
       timezone    TEXT NOT NULL DEFAULT 'UTC',
       warn_minutes INTEGER NOT NULL DEFAULT 5,
       enabled     INTEGER NOT NULL DEFAULT 0
@@ -234,6 +235,12 @@ function applySchema(db: Database.Database): void {
       started_at  INTEGER NOT NULL DEFAULT (unixepoch())
     );
   `);
+
+  // ── Migrations (idempotent column additions) ──────────────────────────────
+  const addColIfMissing = (table: string, col: string, def: string) => {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+  };
+  addColIfMissing('scheduled_restarts', 'cron_expr', "TEXT NOT NULL DEFAULT ''");
 
   // Seed the default instance from env config if none exist
   const count = (db.prepare('SELECT COUNT(*) as c FROM instances').get() as { c: number }).c;

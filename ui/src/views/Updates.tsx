@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BuildInfo, RestartSchedule } from '../api/client';
+import { BuildInfo } from '../api/client';
 import { useInstance } from '../context/InstanceContext';
 import { Button } from '../components/ui/Button';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
@@ -18,16 +18,10 @@ export function Updates() {
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const [schedule, setSchedule] = useState<RestartSchedule | null>(null);
-  const [scheduleSaving, setScheduleSaving] = useState(false);
-  const [schedDirty, setSchedDirty] = useState(false);
 
   async function load() {
     if (!api) return;
-    try {
-      const [i, s] = await Promise.all([api.buildInfo(), api.getSchedule()]);
-      setInfo(i); setSchedule(s);
-    } catch {}
+    try { setInfo(await api.buildInfo()); } catch {}
     setLoading(false);
   }
   useEffect(() => { load(); }, [api]);
@@ -44,20 +38,6 @@ export function Updates() {
     try { await api.applyUpdate(); alert('Update started — watch the Console tab for progress.'); }
     catch (e) { alert((e as Error).message); }
     setUpdating(false);
-  }
-
-  function patchSched<K extends keyof RestartSchedule>(k: K, v: RestartSchedule[K]) {
-    setSchedule((s) => s ? { ...s, [k]: v } : s);
-    setSchedDirty(true);
-  }
-  async function saveSchedule() {
-    if (!api || !schedule) return;
-    setScheduleSaving(true);
-    try {
-      const u = await api.patchSchedule({ frequency: schedule.frequency, time: schedule.time, timezone: schedule.timezone, warn_minutes: schedule.warn_minutes, enabled: schedule.enabled });
-      setSchedule(u); setSchedDirty(false);
-    } catch (e) { alert((e as Error).message); }
-    setScheduleSaving(false);
   }
 
   return (
@@ -113,51 +93,14 @@ export function Updates() {
             ))}
           </PanelSection>
 
-          <PanelSection title="Scheduled restarts" description="A periodic server restart to clear memory — separate from update restarts.">
-            {schedule ? (
-              <>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className={labelCls}>Enabled</label>
-                    <label className="relative inline-flex items-center cursor-pointer mt-1">
-                      <input type="checkbox" className="sr-only" checked={schedule.enabled === 1} onChange={(e) => patchSched('enabled', e.target.checked ? 1 : 0)} />
-                      <div className={cn('w-9 h-5 rounded-full transition-colors', schedule.enabled ? 'bg-violet' : 'bg-line')}>
-                        <div className={cn('absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-void transition-transform', schedule.enabled ? 'translate-x-4' : '')} />
-                      </div>
-                    </label>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className={labelCls}>Frequency</label>
-                    <select value={schedule.frequency} onChange={(e) => patchSched('frequency', e.target.value as RestartSchedule['frequency'])} className={inputCls}>
-                      <option value="daily">Daily</option>
-                      <option value="12h">Every 12 hours</option>
-                      <option value="weekly">Weekly (Sunday)</option>
-                      <option value="off">Off</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className={labelCls}>Time (server clock)</label>
-                    <input type="time" value={schedule.time} onChange={(e) => patchSched('time', e.target.value)} className={inputCls} />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className={labelCls}>Timezone</label>
-                    <input type="text" placeholder="UTC" value={schedule.timezone} onChange={(e) => patchSched('timezone', e.target.value)} className={inputCls} />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className={labelCls}>Warn players (min)</label>
-                    <input type="number" min={0} max={30} value={schedule.warn_minutes} onChange={(e) => patchSched('warn_minutes', parseInt(e.target.value, 10))} className={inputCls} />
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Button variant="violet" disabled={!schedDirty} loading={scheduleSaving} onClick={saveSchedule}>Save schedule</Button>
-                  {!schedDirty && !scheduleSaving && (
-                    <span className="font-mono text-[12px] text-fog">
-                      {schedule.enabled ? `Active — ${schedule.frequency} at ${schedule.time}` : 'Disabled'}
-                    </span>
-                  )}
-                </div>
-              </>
-            ) : <div className="text-fog text-[13px]">Loading…</div>}
+          <PanelSection title="Scheduled restarts">
+            <div className="text-fog text-[13px]">
+              Configure automated restart schedules from the{' '}
+              <a href="/restarts" className="underline underline-offset-2 text-[#f97316] hover:text-[#f97316]/80">
+                Restarts
+              </a>{' '}
+              page — now with more frequency options and a live countdown.
+            </div>
           </PanelSection>
         </>
       )}

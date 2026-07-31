@@ -8,8 +8,9 @@ import { rconExec } from '../lib/rcon';
 export interface RestartSchedule {
   id: number;
   instance_id: number;
-  frequency: 'off' | 'daily' | '12h' | 'weekly';
-  time: string;
+  frequency: 'off' | 'hourly' | '3h' | '6h' | '12h' | 'daily' | 'weekly' | 'custom';
+  time: string;       // HH:MM for fixed-time schedules
+  cron_expr: string;  // used when frequency === 'custom'
   timezone: string;
   warn_minutes: number;
   enabled: number;
@@ -17,16 +18,75 @@ export interface RestartSchedule {
 
 const scheduleJobs = new Map<number, ReturnType<typeof cron.schedule>>();
 
-function timeToCron(time: string, frequency: string): string {
-  const [hStr, mStr] = time.split(':');
+function timeToCron(sched: RestartSchedule): string {
+  if (sched.frequency === 'custom') return sched.cron_expr ?? '';
+  const [hStr, mStr] = (sched.time ?? '06:00').split(':');
   const h = parseInt(hStr, 10);
   const m = parseInt(mStr ?? '0', 10);
-  switch (frequency) {
-    case 'daily':   return `${m} ${h} * * *`;
-    case '12h':     return `${m} ${h},${(h + 12) % 24} * * *`;
-    case 'weekly':  return `${m} ${h} * * 0`;   // Sundays
-    default:        return '';
+  switch (sched.frequency) {
+    case 'hourly': return `${m} * * * *`;
+    case '3h':     return `${m} */3 * * *`;
+    case '6h':     return `${m} */6 * * *`;
+    case '12h':    return `${m} ${h},${(h + 12) % 24} * * *`;
+    case 'daily':  return `${m} ${h} * * *`;
+    case 'weekly': return `${m} ${h} * * 0`;   // Sundays
+    default:       return '';
   }
+}
+
+/**
+ * Return the next scheduled restart as a Unix timestamp (ms), or null if
+ * no schedule is active.  We compute it by finding the next Date that
+ * matches the cron expression without relying on node-cron internals.
+ */
+export function getNextRestart(instanceId: number): number | null {
+  const sched = getSchedule(instanceId);
+  if (!sched.enabled || sched.frequency === 'off') return null;
+
+  const expr = timeToCron(sched);
+  if (!expr) return null;
+
+  // Walk forward minute-by-minute (max 1 week) to find the next match
+  const parts = expr.split(' '); // min hour dom month dow
+  const [minPart, hourPart, , , dowPart] = parts;
+
+  const expandField = (field: string, max: number): number[] => {
+    if (field === '*') return Array.from({ length: max }, (_, i) => i);
+    return field.split(',').flatMap((seg) => {
+      if (seg.startsWith('*/')) {
+        const step = parseInt(seg.slice(2), 10);
+        return Array.from({ length: Math.ceil(max / step) }, (_, i) => i * step).filter((v) => v < max);
+      }
+      return [parseInt(seg, 10)];
+    });
+  };
+
+  const validMins  = expandField(minPart,  60);
+  const validHours = expandField(hourPart, 24);
+  const validDows  = dowPart === '*' ? [0,1,2,3,4,5,6] : expandField(dowPart, 7);
+
+  const tz = sched.timezone || 'UTC';
+  const now = new Date();
+  const candidate = new Date(now.getTime() + 60_000); // start 1 min from now
+
+  for (let i = 0; i < 60 * 24 * 7; i++) {
+    const local = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour: 'numeric', minute: 'numeric',
+      weekday: 'narrow', hour12: false,
+    }).formatToParts(candidate);
+
+    const get = (t: string) => parseInt(local.find((p) => p.type === t)?.value ?? '0', 10);
+    const h   = get('hour') % 24;
+    const min = get('minute');
+    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+      .indexOf(local.find((p) => p.type === 'weekday')?.value ?? 'Sun');
+
+    if (validHours.includes(h) && validMins.includes(min) && validDows.includes(dow)) {
+      return candidate.getTime();
+    }
+    candidate.setMinutes(candidate.getMinutes() + 1);
+  }
+  return null;
 }
 
 export function getSchedule(instanceId: number): RestartSchedule {
@@ -97,7 +157,7 @@ export function syncScheduler(inst: Instance): void {
   const sched = getSchedule(inst.id);
   if (sched.frequency === 'off' || !sched.enabled) return;
 
-  const expr = timeToCron(sched.time, sched.frequency);
+  const expr = timeToCron(sched);
   if (!expr) return;
 
   const job = cron.schedule(expr, () => {
@@ -107,5 +167,7 @@ export function syncScheduler(inst: Instance): void {
   }, { timezone: sched.timezone || 'UTC' });
 
   scheduleJobs.set(inst.id, job);
-  log.info(`[${inst.name}] Scheduled restart armed (${sched.frequency} at ${sched.time}, cron: ${expr})`);
+  const next = getNextRestart(inst.id);
+  const nextStr = next ? new Date(next).toLocaleString() : 'unknown';
+  log.info(`[${inst.name}] Scheduled restart armed (${sched.frequency}, cron: ${expr}, next: ${nextStr})`);
 }
