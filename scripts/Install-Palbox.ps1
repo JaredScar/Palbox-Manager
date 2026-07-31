@@ -166,18 +166,65 @@ if (-not $nodeOk) {
     }
 }
 
-# ── NSSM ──────────────────────────────────────────────────────────────────────
+# ── NSSM auto-install ─────────────────────────────────────────────────────────
+
+function Install-NSSM {
+    param([string]$NssmDir = 'C:\nssm')
+
+    $zipUrl  = 'https://nssm.cc/release/nssm-2.24.zip'
+    $zipPath = "$env:TEMP\nssm-2.24.zip"
+    $exePath = Join-Path $NssmDir 'nssm.exe'
+
+    Write-Host "  Downloading NSSM 2.24 from nssm.cc ..." -ForegroundColor Gray
+    try {
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+    } catch {
+        Write-Host "  ✗ NSSM download failed: $_" -ForegroundColor Red
+        Write-Host "    Please install NSSM manually: https://nssm.cc/download" -ForegroundColor Yellow
+        exit 1
+    }
+
+    Write-Host "  Extracting NSSM ..." -ForegroundColor Gray
+    $extractDir = "$env:TEMP\nssm-extract"
+    Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+    New-Item -ItemType Directory -Force -Path $NssmDir | Out-Null
+    Copy-Item "$extractDir\nssm-2.24\win64\nssm.exe" $exePath -Force
+    Remove-Item $zipPath         -Force -ErrorAction SilentlyContinue
+    Remove-Item $extractDir      -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Persist to system PATH so NSSM survives reboots
+    $machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    if ($machinePath -notlike "*$NssmDir*") {
+        [Environment]::SetEnvironmentVariable('PATH', "$machinePath;$NssmDir", 'Machine')
+    }
+    # Refresh PATH in this session immediately
+    $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('PATH','User')
+
+    Write-Host "  ✓ NSSM installed to $exePath" -ForegroundColor Green
+}
+
+# ── NSSM prerequisite check ───────────────────────────────────────────────────
+
 if (-not $NoService) {
     if (Get-Command nssm -ErrorAction SilentlyContinue) {
-        $nssmVer = & nssm version 2>&1 | Select-String 'version' | Select-Object -First 1
-        Write-Host "  ✓ NSSM $nssmVer" -ForegroundColor Green
+        Write-Host "  ✓ NSSM found" -ForegroundColor Green
     } else {
         Write-Host "  ✗ NSSM not found in PATH." -ForegroundColor Red
-        Write-Host "    Download: https://nssm.cc/download  (extract nssm.exe to a folder on PATH)" -ForegroundColor Yellow
-        Write-Host ""
-        $skip = Prompt-Value "Continue without registering a Windows service? (y/N)" "N"
-        if ($skip -ne 'y') { exit 1 }
-        $NoService = $true
+        $installNssm = Prompt-Value "Install NSSM 2.24 automatically? (Y/n)" "Y"
+        if ($installNssm -eq 'n') {
+            Write-Host "    Download manually: https://nssm.cc/download" -ForegroundColor Yellow
+            $skip = Prompt-Value "Continue without registering a Windows service? (y/N)" "N"
+            if ($skip -ne 'y') { exit 1 }
+            $NoService = $true
+        } else {
+            Install-NSSM
+            if (-not (Get-Command nssm -ErrorAction SilentlyContinue)) {
+                Write-Host "  ✗ nssm still not on PATH after install — please open a new terminal and re-run." -ForegroundColor Red
+                exit 1
+            }
+        }
     }
 }
 
