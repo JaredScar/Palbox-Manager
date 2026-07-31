@@ -67,13 +67,13 @@ jobs:
           $pkg | ConvertTo-Json -Depth 32 | Set-Content $pkgPath -Encoding UTF8
           Write-Host "electron/package.json version → $($pkg.version)"
 
+      - name: Compile Electron TypeScript
+        run: npx tsc --project electron/tsconfig.json
+
       - name: Build Electron desktop installer (NSIS)
         shell: pwsh
-        run: |
-          # electron-builder must run from the electron workspace directory
-          # because it resolves extraResources relative to the package.json
-          Set-Location electron
-          npx electron-builder --win --x64
+        working-directory: electron
+        run: npx electron-builder --win --x64 --publish=never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

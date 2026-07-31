@@ -1,6 +1,8 @@
 {
   "name": "@palbox/electron",
   "version": "0.1.0",
+  "description": "Palbox — self-hosted Palworld server management panel (desktop shell)",
+  "author": "Palbox contributors",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
@@ -13,7 +15,7 @@
     "electron-updater": "^6.1.7"
   },
   "devDependencies": {
-    "electron": "^29.0.0",
+    "electron": "29.0.0",
     "electron-builder": "^24.9.1",
     "typescript": "^5.3.3",
     "@types/node": "^20.11.0"
@@ -22,6 +24,7 @@
     "appId": "com.palbox.panel",
     "productName": "Palbox",
     "copyright": "Copyright © 2025 Palbox contributors",
+    "electronVersion": "29.0.0",
     "directories": {
       "output": "out",
       "buildResources": "build"
@@ -48,18 +51,12 @@
       {
         "from": "../.env.example",
         "to": ".env.example"
-      },
-      {
-        "from": "assets",
-        "to": "assets",
-        "filter": ["**/*"]
       }
     ],
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] }
       ],
-      "icon": "assets/icon.ico",
       "artifactName": "Palbox-Setup-${version}.${ext}",
       "publisherName": "Palbox",
       "requestedExecutionLevel": "requireAdministrator"
@@ -73,8 +70,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Palbox",
       "runAfterFinish": true,
-      "include": "build/installer.nsh",
-      "installerSidebar": "build/installer-sidebar.bmp"
+      "include": "build/installer.nsh"
     },
     "publish": {
       "provider": "github",
