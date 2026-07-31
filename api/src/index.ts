@@ -32,6 +32,7 @@ import maintenanceRoutes from './routes/maintenance.js';
 import playerNotesRoutes from './routes/playerNotes.js';
 import uptimeRoutes from './routes/uptime.js';
 import palrestRoutes from './routes/palrest.js';
+import appVersionRoutes from './routes/appVersion.js';
 
 const app = express();
 
@@ -61,6 +62,9 @@ app.use('/api/instances/:instanceId/maintenance', maintenanceRoutes);
 app.use('/api/instances/:instanceId/players',    playerNotesRoutes);
 app.use('/api/instances/:instanceId/uptime',     uptimeRoutes);
 app.use('/api/instances/:instanceId/palrest',    palrestRoutes);
+
+// App version / update check (for browser / headless deployments)
+app.use('/api/app-version', appVersionRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

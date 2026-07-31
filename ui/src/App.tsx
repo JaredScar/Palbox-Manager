@@ -4,6 +4,8 @@ import { authApi } from './api/client';
 import { InstanceProvider, useInstance } from './context/InstanceContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Titlebar } from './components/layout/Titlebar';
+import { UpdateBanner } from './components/UpdateBanner';
+import { useUpdater } from './hooks/useUpdater';
 import { Login } from './views/Login';
 import { Dashboard } from './views/Dashboard';
 import { Players } from './views/Players';
@@ -16,14 +18,17 @@ import { Settings } from './views/Settings';
 import { Audit } from './views/Audit';
 import Cluster from './views/Cluster';
 
-const isElectron = typeof (window as Window & { PALBOX_ELECTRON?: boolean }).PALBOX_ELECTRON !== 'undefined';
+/** True when running inside the Electron desktop shell. */
+const isElectron = !!window.palbox?.isElectron;
 
 function AppShell() {
   const { instances, active, setActiveId } = useInstance();
+  const updater = useUpdater();
 
   return (
     <div className="flex flex-col h-screen bg-void text-bone overflow-hidden">
       <Titlebar isElectron={isElectron} onToggleMode={() => {}} />
+      <UpdateBanner updater={updater} isElectron={isElectron} />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar instances={instances} active={active} setActiveId={setActiveId} isElectron={isElectron} />
         <Routes>

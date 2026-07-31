@@ -9,6 +9,7 @@ import {
   ipcMain,
   dialog,
 } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import fs from 'fs';
@@ -243,6 +244,7 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
+  initAutoUpdater();
 
   app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] });
 
@@ -262,3 +264,60 @@ ipcMain.on('notify', (_event, { title, body }: { title: string; body: string }) 
 
 // IPC: open config file for editing
 ipcMain.on('open-env', () => shell.openPath(envFile));
+
+// IPC: version query from renderer
+ipcMain.handle('get-version', () => app.getVersion());
+
+// IPC: trigger update install
+ipcMain.on('install-update', () => autoUpdater.quitAndInstall());
+
+// IPC: manual update check from renderer
+ipcMain.on('check-for-updates', () => {
+  if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {});
+});
+
+// ── Auto-updater ─────────────────────────────────────────────────────────────
+
+function initAutoUpdater(): void {
+  if (!app.isPackaged) return; // Skip in dev — no release feed available
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    mainWindow?.webContents.send('update-available', {
+      version: info.version,
+      releaseNotes: info.releaseNotes,
+    });
+    tray?.setToolTip(`Palbox — Update v${info.version} available`);
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    mainWindow?.webContents.send('update-progress', {
+      percent:        progress.percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred:    progress.transferred,
+      total:          progress.total,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('update-downloaded', { version: info.version });
+    // Offer restart via system notification too
+    const n = new Notification({
+      title: 'Palbox update ready',
+      body:  `v${info.version} downloaded — click to restart and install.`,
+      icon:  getIcon(),
+    });
+    n.on('click', () => autoUpdater.quitAndInstall());
+    n.show();
+  });
+
+  autoUpdater.on('error', (err) => {
+    mainWindow?.webContents.send('update-error', err.message);
+  });
+
+  // First check 60 s after launch to not slow startup, then every 6 hours
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 60_000);
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
+}
