@@ -7,33 +7,41 @@ Web UI for the browser or a native Electron window on the VPS.
 
 ## Installation
 
-### Option A — Desktop installer (recommended for local / VPS use)
+### Option A — Desktop installer
 
-1. Go to the [**Releases**](../../releases/latest) page.
-2. Download **`Palbox-Setup-vX.Y.Z.exe`**.
-3. Run the installer (Administrator rights may be required).
-4. On first launch Palbox creates a config file at  
-   `%APPDATA%\Palbox\.env` — edit it with your server paths and RCON credentials.
+Go to the [**Releases**](../../releases/latest) page and grab the installer for your platform:
 
-> **Requirement:** [Node.js 22+](https://nodejs.org) must be installed on the machine.
+| File | Platform |
+|------|----------|
+| `Palbox-Setup-vX.Y.Z-windows.exe` | Windows — NSIS guided installer |
+| `Palbox-Setup-vX.Y.Z-windows.msi` | Windows — MSI (Group Policy / silent installs) |
+| `Palbox-vX.Y.Z-mac.dmg` | macOS — Universal (Intel + Apple Silicon) |
+| `Palbox-vX.Y.Z-linux-x64.AppImage` | Linux — portable, no install required |
+| `Palbox-vX.Y.Z-linux-x64.deb` | Linux — Debian/Ubuntu package |
+
+**Windows:** Node.js 22 is automatically detected and installed if missing.  
+**macOS:** After opening the DMG, right-click → *Open* if macOS warns about an unverified developer.  
+**Linux (AppImage):** `chmod +x Palbox-*.AppImage && ./Palbox-*.AppImage`
+
+On first launch Palbox creates a config file at the platform's user-data directory and opens the panel in a desktop window.
 
 ---
 
-### Option B — Headless server package (NSSM service on a Windows VPS)
+### Option B — Headless server package (Windows VPS / NSSM service)
 
-1. Go to the [**Releases**](../../releases/latest) page.
-2. Download **`palbox-server-vX.Y.Z.zip`** and extract it.
-3. Open **PowerShell as Administrator** inside the extracted folder:
+1. Download **`palbox-server-vX.Y.Z.zip`** from [Releases](../../releases/latest) and extract it.
+2. Open **PowerShell as Administrator** inside the extracted folder:
    ```powershell
    .\Install-Palbox.ps1
    ```
-4. Follow the prompts — the script checks prerequisites, writes `.env`, and registers a Windows service via NSSM.
+3. Follow the prompts — the script installs Node.js 22 LTS if needed, writes `.env`, and registers a Windows service via NSSM.
 
 **Requirements:**
-- [Node.js 22+](https://nodejs.org)
-- [NSSM](https://nssm.cc/download) — extract `nssm.exe` somewhere on `PATH` (e.g. `C:\nssm\`)
+- Windows 10 / Server 2019 or newer
+- [NSSM](https://nssm.cc/download) — place `nssm.exe` on your `PATH`
+- Node.js 22+ (auto-installed by the script if absent)
 
-After setup the panel is available at **http://localhost:4000** (or whichever port you chose).
+After setup the panel is available at **http://localhost:4000** (or the port you chose).
 
 ---
 

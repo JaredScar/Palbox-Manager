@@ -4,214 +4,374 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+-*'   # pre-releases: v1.2.3-beta.1
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: write   # needed to create releases and upload assets
+  contents: write
 
 jobs:
-  release:
-    name: Build & publish release
-    runs-on: windows-latest
-
+  # ── 1. Build UI + API once (platform-independent) ───────────────────────────
+  prepare:
+    name: Build UI & API
+    runs-on: ubuntu-latest
+    outputs:
+      version:    ${{ steps.version.outputs.VER }}
+      tag:        ${{ steps.version.outputs.TAG }}
+      prerelease: ${{ steps.version.outputs.PRERELEASE }}
     steps:
-      # ── Checkout ─────────────────────────────────────────────────────────────
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      # ── Toolchain ─────────────────────────────────────────────────────────────
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
 
-      # ── Install ───────────────────────────────────────────────────────────────
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
-      # ── Build UI + API ────────────────────────────────────────────────────────
+      - name: Derive version from tag
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VER="${TAG#v}"
+          [[ "$TAG" == *"-"* ]] && PRE=true || PRE=false
+          echo "TAG=$TAG"     >> "$GITHUB_OUTPUT"
+          echo "VER=$VER"     >> "$GITHUB_OUTPUT"
+          echo "PRERELEASE=$PRE" >> "$GITHUB_OUTPUT"
+
       - name: Build UI
         run: npm run build --workspace=ui
 
       - name: Build API
         run: npm run build --workspace=api
 
-      # ── Derive version from tag ───────────────────────────────────────────────
-      - name: Set version variable
-        id: version
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          # Strip leading 'v' for artifact filenames
-          $ver = $tag.TrimStart('v')
-          echo "TAG=$tag"   >> $env:GITHUB_OUTPUT
-          echo "VER=$ver"   >> $env:GITHUB_OUTPUT
-          Write-Host "Tag: $tag   Version: $ver"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
 
-      # ── Electron NSIS installer ───────────────────────────────────────────────
-      # electron-builder reads the version from electron/package.json; we sync it
-      # from the git tag so the .exe filename matches the release.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+
+  # ── 2a. Windows: NSIS .exe + MSI .msi ───────────────────────────────────────
+  electron-windows:
+    name: Electron — Windows
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+
       - name: Sync version into electron/package.json
         shell: pwsh
         run: |
-          $pkgPath = "electron/package.json"
-          $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
-          $pkg.version = "${{ steps.version.outputs.VER }}"
-          $pkg | ConvertTo-Json -Depth 32 | Set-Content $pkgPath -Encoding UTF8
-          Write-Host "electron/package.json version → $($pkg.version)"
+          $pkg = Get-Content electron/package.json | ConvertFrom-Json
+          $pkg.version = "${{ needs.prepare.outputs.version }}"
+          $pkg | ConvertTo-Json -Depth 32 | Set-Content electron/package.json -Encoding UTF8
 
       - name: Compile Electron TypeScript
         run: npx tsc --project electron/tsconfig.json
 
-      - name: Build Electron desktop installer (NSIS)
+      - name: Install API production deps (Windows binary)
         shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path api-bundle | Out-Null
+          Copy-Item api\package.json api-bundle\package.json
+          Push-Location api-bundle
+          npm install --omit=dev
+          Pop-Location
+
+      - name: Build Windows installers (NSIS + MSI)
         working-directory: electron
+        shell: pwsh
         run: npx electron-builder --win --x64 --publish=never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Locate Electron installer
-        id: electron-artifact
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem -Path "electron/out" -Filter "*.exe" -Recurse |
-                 Where-Object { $_.Name -match "Setup" } |
-                 Select-Object -First 1
-          if (-not $exe) { Write-Error "No NSIS .exe found in electron/out/"; exit 1 }
-          echo "PATH=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-          Write-Host "Electron installer: $($exe.FullName)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows
+          path: |
+            electron/out/*.exe
+            electron/out/*.msi
 
-      # ── Server ZIP package ────────────────────────────────────────────────────
-      - name: Stage server package
+  # ── 2b. macOS: Universal DMG ─────────────────────────────────────────────────
+  electron-mac:
+    name: Electron — macOS
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+
+      - name: Sync version into electron/package.json
+        run: |
+          node -e "
+            const fs=require('fs');
+            const p=JSON.parse(fs.readFileSync('electron/package.json','utf8'));
+            p.version='${{ needs.prepare.outputs.version }}';
+            fs.writeFileSync('electron/package.json',JSON.stringify(p,null,2));
+          "
+
+      - name: Compile Electron TypeScript
+        run: npx tsc --project electron/tsconfig.json
+
+      - name: Install API production deps (macOS binary)
+        run: |
+          mkdir -p api-bundle
+          cp api/package.json api-bundle/
+          cd api-bundle && npm install --omit=dev
+
+      - name: Build macOS installer (universal DMG)
+        working-directory: electron
+        run: npx electron-builder --mac --universal --publish=never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-mac
+          path: electron/out/*.dmg
+
+  # ── 2c. Linux: AppImage + deb ─────────────────────────────────────────────────
+  electron-linux:
+    name: Electron — Linux
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Linux packaging tools
+        run: sudo apt-get install -y rpm fakeroot
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+
+      - name: Sync version into electron/package.json
+        run: |
+          node -e "
+            const fs=require('fs');
+            const p=JSON.parse(fs.readFileSync('electron/package.json','utf8'));
+            p.version='${{ needs.prepare.outputs.version }}';
+            fs.writeFileSync('electron/package.json',JSON.stringify(p,null,2));
+          "
+
+      - name: Compile Electron TypeScript
+        run: npx tsc --project electron/tsconfig.json
+
+      - name: Install API production deps (Linux binary)
+        run: |
+          mkdir -p api-bundle
+          cp api/package.json api-bundle/
+          cd api-bundle && npm install --omit=dev
+
+      - name: Build Linux installers (AppImage + deb)
+        working-directory: electron
+        run: npx electron-builder --linux --x64 --publish=never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-linux
+          path: |
+            electron/out/*.AppImage
+            electron/out/*.deb
+
+  # ── 3. Server ZIP (Windows headless package) ─────────────────────────────────
+  server-zip:
+    name: Server package (ZIP)
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+
+      - name: Stage and zip server package
         shell: pwsh
         run: |
-          $ver  = "${{ steps.version.outputs.VER }}"
+          $ver  = "${{ needs.prepare.outputs.version }}"
           $dest = "staging\palbox-server-$ver"
 
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-
-          # API compiled output
           Copy-Item -Recurse -Force api\dist "$dest\api-dist"
 
-          # npm workspaces hoists everything to the root node_modules — api/node_modules
-          # does not exist. Install production-only deps directly into the staging dir so
-          # that Node can resolve them from api-dist/ by walking up one directory.
+          # Install API prod deps — workspace hoisting means api/node_modules doesn't exist
           Copy-Item -Force api\package.json "$dest\package.json"
           Push-Location $dest
-          npm install --omit=dev --ignore-scripts
-          # better-sqlite3 needs its build script; re-run it specifically
+          npm install --omit=dev
           npm rebuild better-sqlite3
           Pop-Location
-          # Remove package.json — not needed at runtime, node_modules is enough
           Remove-Item "$dest\package.json" -Force
 
-          # UI static files (the API will serve these)
-          Copy-Item -Recurse -Force ui\dist       "$dest\ui-dist"
-
-          # Config template & installer scripts
-          Copy-Item -Force .env.example           "$dest\.env.example"
+          Copy-Item -Recurse -Force ui\dist "$dest\ui-dist"
+          Copy-Item -Force .env.example "$dest\.env.example"
           Copy-Item -Force scripts\Install-Palbox.ps1   "$dest\Install-Palbox.ps1"
           Copy-Item -Force scripts\Uninstall-Palbox.ps1 "$dest\Uninstall-Palbox.ps1"
 
-          # Write a quick README for the ZIP (avoid here-strings; unindented content breaks YAML block scalars)
           $readme  = "# Palbox Server Package v$ver`r`n`r`n"
           $readme += "## Quick setup`r`n"
           $readme += "1. Extract this ZIP to a temporary folder.`r`n"
           $readme += "2. Open PowerShell as Administrator in that folder.`r`n"
           $readme += "3. Run: .\Install-Palbox.ps1`r`n`r`n"
-          $readme += "The script checks prerequisites (and installs Node.js 22 LTS`r`n"
-          $readme += "automatically if needed), prompts for your paths, writes .env,`r`n"
-          $readme += "and registers a Windows service via NSSM.`r`n`r`n"
+          $readme += "The script checks prerequisites (installs Node.js 22 LTS if needed),`r`n"
+          $readme += "prompts for your server paths, writes .env, and registers a`r`n"
+          $readme += "Windows service via NSSM.`r`n`r`n"
           $readme += "## Requirements`r`n"
           $readme += "- Windows 10 / Server 2019 or newer`r`n"
-          $readme += "- Node.js 22+   https://nodejs.org  (installer can auto-install this)`r`n"
+          $readme += "- Node.js 22+   https://nodejs.org  (auto-installed by the script)`r`n"
           $readme += "- NSSM          https://nssm.cc/download`r`n`r`n"
           $readme += "## Manual start (without NSSM)`r`n"
-          $readme += "  cd api-dist`r`n"
-          $readme += "  node index.js`r`n`r`n"
+          $readme += "  cd api-dist && node index.js`r`n`r`n"
           $readme += "## Uninstall`r`n"
           $readme += "  .\Uninstall-Palbox.ps1 -RemoveFiles`r`n"
           $readme | Set-Content "$dest\README-server.txt" -Encoding UTF8
 
-          Write-Host "Staged to $dest"
-          echo "STAGE=$dest" >> $env:GITHUB_OUTPUT
+          $zip = "palbox-server-$ver.zip"
+          Compress-Archive -Path "$dest\*" -DestinationPath $zip -CompressionLevel Optimal
+          Write-Host "Created $zip ($('{0:N1}' -f ((Get-Item $zip).Length / 1MB)) MB)"
 
-      - name: Create server ZIP
-        id: server-zip
-        shell: pwsh
-        run: |
-          $ver     = "${{ steps.version.outputs.VER }}"
-          $stage   = "staging\palbox-server-$ver"
-          $zipName = "palbox-server-$ver.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-zip
+          path: palbox-server-*.zip
 
-          Compress-Archive -Path "$stage\*" -DestinationPath $zipName -CompressionLevel Optimal
-          Write-Host "Created $zipName ($('{0:N2}' -f ((Get-Item $zipName).Length / 1MB)) MB)"
-          echo "PATH=$zipName" >> $env:GITHUB_OUTPUT
+  # ── 4. Create GitHub Release with all artifacts ──────────────────────────────
+  release:
+    name: Publish Release
+    needs: [prepare, electron-windows, electron-mac, electron-linux, server-zip]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      # ── Generate release notes ─────────────────────────────────────────────────
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+          pattern: '{electron-windows,electron-mac,electron-linux,server-zip}'
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
       - name: Generate release notes
-        id: notes
-        shell: pwsh
         run: |
-          $ver = "${{ steps.version.outputs.VER }}"
-          $tag = "${{ steps.version.outputs.TAG }}"
-          $isPrerelease = $tag -match '-'
+          VER="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.tag }}"
+          {
+            echo "## Palbox $TAG"
+            echo ""
+            echo "Self-hosted Palworld server management panel."
+            echo ""
+            echo "### Downloads"
+            echo ""
+            echo "| File | Platform | Description |"
+            echo "|------|----------|-------------|"
+            echo "| \`Palbox-Setup-$VER-windows.exe\` | Windows | NSIS installer — guided setup with Node.js auto-install |"
+            echo "| \`Palbox-Setup-$VER-windows.msi\` | Windows | MSI installer — for enterprise / Group Policy deployments |"
+            echo "| \`Palbox-$VER-mac.dmg\` | macOS (Universal) | DMG — works on both Intel and Apple Silicon |"
+            echo "| \`Palbox-$VER-linux-x64.AppImage\` | Linux | Portable AppImage — no install needed |"
+            echo "| \`Palbox-$VER-linux-x64.deb\` | Linux | Debian/Ubuntu package |"
+            echo "| \`palbox-server-$VER.zip\` | Windows Server | Headless server package + PowerShell setup wizard |"
+            echo ""
+            echo "### Requirements"
+            echo "- **Desktop installers:** Node.js 22+ (auto-installed on Windows if missing)"
+            echo "- **Server ZIP:** Windows 10 / Server 2019+, Node.js 22+ (auto-installed), [NSSM](https://nssm.cc/download)"
+            echo ""
+            echo "### Server ZIP — quick setup"
+            echo '```powershell'
+            echo "# Extract palbox-server-$VER.zip, then:"
+            echo ".\Install-Palbox.ps1   # run as Administrator"
+            echo '```'
+            echo ""
+            echo "### Upgrading"
+            echo '```powershell'
+            echo "nssm stop PalboxAPI"
+            echo "# Overwrite api-dist/ and node_modules/ — keep your .env"
+            echo "nssm start PalboxAPI"
+            echo '```'
+          } > release-notes.md
 
-          # Build release notes without here-strings to keep YAML valid
-          $n  = "## Palbox $tag`n`n"
-          $n += "Self-hosted Palworld server management panel.`n`n"
-          $n += "### Downloads`n`n"
-          $n += "| File | Description |`n"
-          $n += "|------|-------------|`n"
-          $n += "| ``Palbox-Setup-$ver.exe`` | **Desktop installer** (Windows x64). Bundles the full panel; launches the API automatically. Node.js 22 LTS is installed automatically if missing. |`n"
-          $n += "| ``palbox-server-$ver.zip`` | **Headless server package**. Extract and run ``Install-Palbox.ps1`` as Administrator. Node.js 22 LTS is installed automatically if missing. |`n`n"
-          $n += "### Requirements`n"
-          $n += "- Windows 10 / Server 2019 or newer (x64)`n"
-          $n += "- [Node.js 22+](https://nodejs.org) — installed automatically by both installers`n"
-          $n += "- [NSSM](https://nssm.cc/download) *(server ZIP only — for Windows service registration)*`n`n"
-          $n += "### First-time setup (server ZIP)`n"
-          $n += '```powershell' + "`n"
-          $n += "# 1. Extract palbox-server-$ver.zip`n"
-          $n += "# 2. Open PowerShell as Administrator`n"
-          $n += '.\Install-Palbox.ps1' + "`n"
-          $n += "# Follow the prompts — Node.js is auto-installed, .env is written, service is registered.`n"
-          $n += '```' + "`n`n"
-          $n += "### Upgrading from a previous version`n"
-          $n += '```powershell' + "`n"
-          $n += "nssm stop PalboxAPI`n"
-          $n += "# Overwrite api-dist/ and node_modules/ with the new package contents,`n"
-          $n += "# keeping your existing .env file.`n"
-          $n += "nssm start PalboxAPI`n"
-          $n += '```' + "`n"
-          $n | Set-Content release-notes.md -Encoding UTF8
-          echo "PRERELEASE=$($isPrerelease.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-
-      # ── Create GitHub Release ──────────────────────────────────────────────────
       - name: Create GitHub Release
-        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "${{ steps.version.outputs.TAG }}"
-          $zip = "${{ steps.server-zip.outputs.PATH }}"
-          $exe = "${{ steps.electron-artifact.outputs.PATH }}"
-          $pre = "${{ steps.notes.outputs.PRERELEASE }}"
+          TAG="${{ needs.prepare.outputs.tag }}"
+          PRE="${{ needs.prepare.outputs.prerelease }}"
 
-          # Build argument list as an array so an empty $preFlag is never passed
-          $args = @(
-            'release', 'create', $tag,
-            '--title', "Palbox $tag",
-            '--notes-file', 'release-notes.md',
-            $zip, $exe
-          )
-          if ($pre -eq 'true') { $args += '--prerelease' }
+          ARGS=(release create "$TAG" --title "Palbox $TAG" --notes-file release-notes.md)
+          [[ "$PRE" == "true" ]] && ARGS+=(--prerelease)
 
-          gh @args
-          Write-Host "✓ Release $tag created."
+          for f in release-assets/*; do
+            [[ -f "$f" ]] && ARGS+=("$f")
+          done
+
+          gh "${ARGS[@]}"
+          echo "✓ Release $TAG published."

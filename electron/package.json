@@ -43,7 +43,7 @@
         "filter": ["**/*"]
       },
       {
-        "from": "../api/node_modules",
+        "from": "../api-bundle/node_modules",
         "to": "api/node_modules",
         "filter": ["**/*", "!.cache/**", "!*.map"]
       },
@@ -59,9 +59,10 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "msi",  "arch": ["x64"] }
       ],
-      "artifactName": "Palbox-Setup-${version}.${ext}",
+      "artifactName": "Palbox-Setup-${version}-windows.${ext}",
       "publisherName": "Palbox",
       "requestedExecutionLevel": "requireAdministrator"
     },
@@ -75,6 +76,33 @@
       "shortcutName": "Palbox",
       "runAfterFinish": true,
       "include": "build/installer.nsh"
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": true
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["universal"] }
+      ],
+      "artifactName": "Palbox-${version}-mac.${ext}",
+      "category": "public.app-category.utilities"
+    },
+    "dmg": {
+      "title": "Palbox ${version}",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb",      "arch": ["x64"] }
+      ],
+      "artifactName": "Palbox-${version}-linux-${arch}.${ext}",
+      "category": "Utility",
+      "synopsis": "Self-hosted Palworld server management panel"
     },
     "publish": {
       "provider": "github",

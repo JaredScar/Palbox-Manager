@@ -45,25 +45,39 @@ const envFile = app.isPackaged
 
 // ── Node discovery ────────────────────────────────────────────────────────────
 
-/** Find the node executable on the system PATH. */
+/** Find the node executable on the system PATH (cross-platform). */
 function findNodeExe(): string {
   // In dev mode the current exe IS node (via tsx / ts-node)
   if (!app.isPackaged) return process.execPath;
 
-  // Try `where node` (Windows)
   const candidates: string[] = [];
+
+  // Ask the shell where node lives — command differs by platform
   try {
-    const result = execSync('where node', { encoding: 'utf8', stdio: 'pipe' });
+    const cmd = process.platform === 'win32' ? 'where node' : 'which node';
+    const result = execSync(cmd, { encoding: 'utf8', stdio: 'pipe' });
     candidates.push(...result.trim().split(/\r?\n/).filter(Boolean));
   } catch { /* not on PATH */ }
 
-  // Common fallback locations
-  candidates.push(
-    'C:\\Program Files\\nodejs\\node.exe',
-    'C:\\Program Files (x86)\\nodejs\\node.exe',
-    path.join(process.env.APPDATA ?? '', '..\\Local\\Programs\\nodejs\\node.exe'),
-    path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'nodejs\\node.exe'),
-  );
+  // Common fallback locations per platform
+  if (process.platform === 'win32') {
+    candidates.push(
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Program Files (x86)\\nodejs\\node.exe',
+      path.join(process.env.APPDATA ?? '', '..\\Local\\Programs\\nodejs\\node.exe'),
+    );
+  } else if (process.platform === 'darwin') {
+    candidates.push(
+      '/opt/homebrew/bin/node',   // Apple Silicon Homebrew
+      '/usr/local/bin/node',      // Intel Homebrew / nvm
+      '/usr/bin/node',
+    );
+  } else {
+    candidates.push(
+      '/usr/local/bin/node',
+      '/usr/bin/node',
+    );
+  }
 
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
