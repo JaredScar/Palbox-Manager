@@ -14,6 +14,15 @@ import path from 'path';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import fs from 'fs';
 
+// Disable GPU acceleration before anything else.
+// Windows VPS / Server environments have no GPU driver, causing Electron to
+// crash at startup with "GPU process isn't usable". Software rasterizer works
+// fine for a management panel and has no meaningful visual cost.
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+
 const API_URL = 'http://localhost:4000';
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
