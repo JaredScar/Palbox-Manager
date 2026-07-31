@@ -38,30 +38,47 @@ async function nssmServiceExists(serviceName: string): Promise<boolean> {
   }
 }
 
+/** Derive the bare exe name (no extension) to use with Get-Process. */
+function exeBaseName(inst: Instance): string {
+  if (inst.exe_path) {
+    const name = inst.exe_path.split('\\').pop() ?? '';
+    return name.replace(/\.exe$/i, '') || 'PalServer-Win64-Shipping-Cmd';
+  }
+  return 'PalServer-Win64-Shipping-Cmd';
+}
+
+/** Check whether the game process is running by name and return uptime seconds. */
+async function checkProcessDirect(inst: Instance): Promise<{ status: ServerStatus; uptime: number | null }> {
+  const name = exeBaseName(inst);
+  const out = await psCommand(
+    `$p = Get-Process -Name '${name}' -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
+    `if($p){ [string]((Get-Date) - $p.StartTime).TotalSeconds } else { '' }`,
+  );
+  if (out) {
+    const uptime = parseFloat(out);
+    return { status: 'online', uptime: isNaN(uptime) ? null : Math.floor(uptime) };
+  }
+  return { status: 'offline', uptime: null };
+}
+
 export async function getStatus(inst: Instance): Promise<{ status: ServerStatus; uptime: number | null }> {
   try {
-    const out = await psCommand(
-      `(Get-Service -Name '${inst.service_name}' -ErrorAction SilentlyContinue).Status`,
-    );
-    if (out === 'Running') {
+    // ── 1. Try the Windows service (fast path when NSSM is configured) ──────
+    if (inst.service_name) {
       try {
-        const exeName = inst.exe_path
-          ? inst.exe_path.split('\\').pop()?.replace('.exe', '') ?? 'PalServer'
-          : 'PalServer-Win64-Shipping-Cmd';
-        const uptimeStr = await psCommand(
-          `$p = Get-Process -Name '${exeName}' -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
-            `if($p){ [string]((Get-Date) - $p.StartTime).TotalSeconds } else { '' }`,
+        const svcStatus = await psCommand(
+          `(Get-Service -Name '${inst.service_name}' -ErrorAction SilentlyContinue).Status`,
         );
-        const uptime = parseFloat(uptimeStr);
-        return { status: 'online', uptime: isNaN(uptime) ? null : Math.floor(uptime) };
-      } catch {
-        return { status: 'online', uptime: null };
-      }
+        if (svcStatus === 'Running')      return checkProcessDirect(inst);
+        if (svcStatus === 'StartPending') return { status: 'starting', uptime: null };
+        if (svcStatus === 'StopPending')  return { status: 'stopping', uptime: null };
+        // 'Stopped' or empty — fall through to direct process check
+      } catch { /* service query failed — fall through */ }
     }
-    if (out === 'Stopped')     return { status: 'offline',  uptime: null };
-    if (out === 'StartPending') return { status: 'starting', uptime: null };
-    if (out === 'StopPending')  return { status: 'stopping', uptime: null };
-    return { status: 'offline', uptime: null };
+
+    // ── 2. Fall back: check whether the exe is running directly ─────────────
+    // Covers: direct-launch fallback, or service stopped but process still alive.
+    return await checkProcessDirect(inst);
   } catch (err) {
     log.warn(`getStatus(${inst.name}) failed:`, err);
     return { status: 'offline', uptime: null };
@@ -119,9 +136,7 @@ export async function restartServer(inst: Instance): Promise<void> {
 
 export async function getCpuAndMemory(inst: Instance): Promise<{ cpuPct: number; memMb: number }> {
   try {
-    const exeName = inst.exe_path
-      ? inst.exe_path.split('\\').pop()?.replace('.exe', '') ?? 'PalServer'
-      : 'PalServer-Win64-Shipping-Cmd';
+    const exeName = exeBaseName(inst);
 
     const out = await psCommand(
       `$p = Get-Process -Name '${exeName}' -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
