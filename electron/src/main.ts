@@ -39,8 +39,9 @@ if (fs.existsSync(GPU_FLAG_FILE)) {
 }
 
 // If the GPU process crashes at runtime, persist the flag and auto-relaunch.
-// The relaunch will pick up the flag above and start without GPU acceleration.
-app.on('gpu-process-crashed', (_event, _killed) => {
+// child-process-gone replaced the removed gpu-process-crashed event (Electron 14+).
+app.on('child-process-gone', (_event, details) => {
+  if (details.type !== 'GPU') return;
   try {
     fs.mkdirSync(path.dirname(GPU_FLAG_FILE), { recursive: true });
     fs.writeFileSync(GPU_FLAG_FILE, '1', 'utf8');
