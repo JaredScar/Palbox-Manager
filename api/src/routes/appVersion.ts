@@ -1,15 +1,14 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 
 const router = Router();
 
-// Resolve current version from the API package.json
+// Resolve current version from the API package.json (CommonJS __dirname is always available)
 function readCurrentVersion(): string {
   try {
-    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+    const pkgPath = join(__dirname, '../../package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
     return pkg.version ?? '0.0.0';
   } catch {
