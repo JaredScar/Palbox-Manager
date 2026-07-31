@@ -1,6 +1,43 @@
-# Palbox — Palworld Server Manager
+<p align="center">
+  <img src="electron/assets/icon.png" alt="Palbox Manager Logo" width="200" />
+</p>
 
-Self-hosted ops panel for your Palworld dedicated server(s).
+<h1 align="center">Palbox — Palworld Server Manager</h1>
+
+<p align="center">
+  <em>Manage, Monitor. Master Your World.</em>
+</p>
+
+<p align="center">
+  Self-hosted ops panel for your Palworld dedicated server(s).
+</p>
+
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><strong>Dashboard</strong><br/><img src="docs/screenshots/dashboard.png" alt="Dashboard" width="480"/></td>
+    <td align="center"><strong>Metrics</strong><br/><img src="docs/screenshots/metrics.png" alt="Metrics" width="480"/></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Players &amp; Moderation</strong><br/><img src="docs/screenshots/players.png" alt="Players" width="480"/></td>
+    <td align="center"><strong>Backups</strong><br/><img src="docs/screenshots/backups.png" alt="Backups" width="480"/></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Server Build &amp; Updates</strong><br/><img src="docs/screenshots/updates.png" alt="Updates" width="480"/></td>
+    <td align="center"><strong>Mods (UE4SS)</strong><br/><img src="docs/screenshots/mods.png" alt="Mods" width="480"/></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Live Console</strong><br/><img src="docs/screenshots/console.png" alt="Console" width="480"/></td>
+    <td align="center"><strong>Cluster Overview</strong><br/><img src="docs/screenshots/cluster.png" alt="Cluster" width="480"/></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Audit Log</strong><br/><img src="docs/screenshots/audit-log.png" alt="Audit Log" width="480"/></td>
+    <td align="center"><strong>Settings</strong><br/><img src="docs/screenshots/settings.png" alt="Settings" width="480"/></td>
+  </tr>
+</table>
 
 ---
 
