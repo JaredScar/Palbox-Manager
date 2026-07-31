@@ -149,13 +149,28 @@ export async function getCpuAndMemory(inst: Instance): Promise<{ cpuPct: number;
   try {
     const exeName = exeBaseName(inst);
 
+    // Get memory from Get-Process (always reliable) and CPU% from the WMI
+    // performance-data class (Win32_PerfFormattedData_PerfProc_Process).
+    // PercentProcessorTime there is the raw counter that can exceed 100 on
+    // multi-core machines, so we divide by the logical processor count to
+    // get a 0-100 system-level percentage.
     const out = await psCommand(
       `$p = Get-Process -Name '${exeName}' -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
-        `if($p){ [string]$p.WorkingSet64 + ' 0' } else { '0 0' }`,
+      `if ($p) {` +
+      `  $cim = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -Filter "IDProcess=$($p.Id)" -ErrorAction SilentlyContinue | Select-Object -First 1;` +
+      `  $cores = [Environment]::ProcessorCount; if ($cores -lt 1) { $cores = 1 };` +
+      `  $cpu = if ($cim) { [Math]::Round([double]$cim.PercentProcessorTime / $cores, 1) } else { 0 };` +
+      `  "$($p.WorkingSet64) $cpu"` +
+      `} else { '0 0' }`,
     );
+
     const parts = out.split(' ');
-    const memMb = parseFloat(parts[0]) / 1024 / 1024;
-    return { cpuPct: 0, memMb: isNaN(memMb) ? 0 : memMb };
+    const memMb  = parseFloat(parts[0]) / 1024 / 1024;
+    const cpuPct = parseFloat(parts[1] ?? '0');
+    return {
+      cpuPct: isNaN(cpuPct) ? 0 : Math.min(cpuPct, 100),
+      memMb:  isNaN(memMb)  ? 0 : memMb,
+    };
   } catch {
     return { cpuPct: 0, memMb: 0 };
   }

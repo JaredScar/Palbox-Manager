@@ -9,6 +9,7 @@ import { isArmed, getLastIntervention, getMetrics24h } from '../services/watchdo
 import { resolveInstalledBuildId } from '../services/steamcmd.js';
 import { readSettings } from '../services/ini.js';
 import { logAction } from '../services/audit.js';
+import { getOnlinePlayers, clearPlayers } from '../services/playerTracker.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -20,14 +21,36 @@ router.get('/status', async (req, res) => {
     getCpuAndMemory(inst),
   ]);
 
-  let players: { name: string; playerUid: string; steamId: string }[] = [];
-  try {
-    const raw = await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'ShowPlayers');
-    players = raw.split('\n').filter((l) => l.includes(',')).map((l) => {
-      const parts = l.split(',');
-      return { name: parts[0]?.trim() ?? '', playerUid: parts[1]?.trim() ?? '', steamId: parts[2]?.trim() ?? '' };
-    });
-  } catch { /* offline */ }
+  // Clear stale players if the server is offline
+  if (status === 'offline') clearPlayers(inst.id);
+
+  // ── Player list ────────────────────────────────────────────────────────────
+  // Primary source: in-memory tracker populated by log-file parsing (always
+  // available even when RCON is not configured).
+  let players = getOnlinePlayers(inst.id);
+
+  // Supplement with RCON ShowPlayers if configured — it provides richer data
+  // (steam IDs) and is authoritative when available.
+  if (status === 'online' && inst.rcon_password) {
+    try {
+      const raw = await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'ShowPlayers');
+      // Response: first line is a header "name,playeruid,steamid" — skip it.
+      const lines = raw.split('\n').slice(1).filter((l) => l.includes(','));
+      if (lines.length > 0) {
+        // RCON is working and has real data — prefer it over log tracking
+        players = lines.map((l) => {
+          const parts = l.split(',');
+          return {
+            name:      parts[0]?.trim() ?? '',
+            playerUid: parts[1]?.trim() ?? '',
+            steamId:   parts[2]?.trim() ?? '',
+            joinedAt:  0,
+          };
+        });
+      }
+      // If RCON returned 0 lines (empty server), fall through to log-based count
+    } catch { /* RCON not reachable — stick with log-based list */ }
+  }
 
   res.json({
     status,

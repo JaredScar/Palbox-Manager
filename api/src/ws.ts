@@ -4,6 +4,7 @@ import fs from 'fs';
 import readline from 'readline';
 import type { Instance } from './db/types';
 import { log } from './lib/logger';
+import { onLogLine, clearPlayers } from './services/playerTracker';
 
 let wss: WebSocketServer | null = null;
 
@@ -91,6 +92,9 @@ export function startLogTail(inst: Instance): void {
     let fileSize = 0;
     try { fileSize = fs.statSync(logFile).size; } catch { return; }
 
+    // Clear stale player state before replaying the log (avoids phantom players)
+    clearPlayers(inst.id);
+
     // Send the last 8 KB of existing content to the buffer so new clients get history
     const startPos = Math.max(0, fileSize - 8192);
     try {
@@ -98,8 +102,8 @@ export function startLogTail(inst: Instance): void {
       const rl = readline.createInterface({ input: stream });
       rl.on('line', (line) => {
         if (!line.trim()) return;
+        onLogLine(inst.id, line);           // track join/leave
         bufferLine(inst.id, line);
-        // Broadcast to any clients already connected (e.g. after service restart)
         broadcast({ type: 'log', instanceId: inst.id, line });
       });
     } catch (e) {
@@ -113,8 +117,9 @@ export function startLogTail(inst: Instance): void {
         const newSize = stat.size;
 
         if (newSize < fileSize) {
-          // File was rotated / truncated — reset position
+          // File was rotated / truncated — reset position and clear stale players
           fileSize = 0;
+          clearPlayers(inst.id);
         }
 
         if (newSize > fileSize) {
@@ -123,6 +128,7 @@ export function startLogTail(inst: Instance): void {
           const rl2 = readline.createInterface({ input: chunk });
           rl2.on('line', (line) => {
             if (!line.trim()) return;
+            onLogLine(inst.id, line);       // track join/leave
             bufferLine(inst.id, line);
             broadcast({ type: 'log', instanceId: inst.id, line });
           });
