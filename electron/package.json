@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Palbox — self-hosted Palworld server management panel (desktop shell)",
   "author": "Palbox contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JaredScar/Palbox-Manager"
+  },
   "private": true,
   "main": "dist/main.js",
   "scripts": {
