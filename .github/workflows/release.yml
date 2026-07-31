@@ -98,8 +98,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
           # API compiled output
-          Copy-Item -Recurse -Force api\dist      "$dest\api-dist"
-          Copy-Item -Recurse -Force api\node_modules "$dest\node_modules"
+          Copy-Item -Recurse -Force api\dist "$dest\api-dist"
+
+          # npm workspaces hoists everything to the root node_modules — api/node_modules
+          # does not exist. Install production-only deps directly into the staging dir so
+          # that Node can resolve them from api-dist/ by walking up one directory.
+          Copy-Item -Force api\package.json "$dest\package.json"
+          Push-Location $dest
+          npm install --omit=dev --ignore-scripts
+          # better-sqlite3 needs its build script; re-run it specifically
+          npm rebuild better-sqlite3
+          Pop-Location
+          # Remove package.json — not needed at runtime, node_modules is enough
+          Remove-Item "$dest\package.json" -Force
 
           # UI static files (the API will serve these)
           Copy-Item -Recurse -Force ui\dist       "$dest\ui-dist"
