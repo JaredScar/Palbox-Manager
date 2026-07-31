@@ -3,10 +3,11 @@ import type { UpdateState } from '../hooks/useUpdater';
 interface Props {
   updater: UpdateState;
   isElectron: boolean;
+  isServerMode?: boolean; // headless server package — can self-update
 }
 
-export function UpdateBanner({ updater, isElectron }: Props) {
-  const { phase, version, percent, releaseUrl, error, dismiss, install } = updater;
+export function UpdateBanner({ updater, isElectron, isServerMode }: Props) {
+  const { phase, version, percent, releaseUrl, error, dismiss, install, applyServerUpdate } = updater;
 
   if (phase === 'idle') return null;
 
@@ -68,29 +69,50 @@ export function UpdateBanner({ updater, isElectron }: Props) {
     );
   }
 
+  // ── Applying server update ────────────────────────────────────────────────
+  if (phase === 'applying') {
+    return (
+      <div className={`${base} bg-accent/10 text-accent`}>
+        <SpinnerIcon />
+        <span>
+          Applying update… The panel will go offline briefly while the service restarts.
+        </span>
+      </div>
+    );
+  }
+
   // ── Update available ──────────────────────────────────────────────────────
-  // (browser: show link; Electron: show that auto-download started)
   return (
     <div className={`${base} bg-accent/10 text-accent`}>
       <UpdateIcon />
       <span>
         Palbox <strong>v{version}</strong> is available.{' '}
-        {isElectron ? (
-          <span className="text-fog">Downloading automatically…</span>
-        ) : (
+        {isElectron && <span className="text-fog">Downloading automatically…</span>}
+      </span>
+      <div className="ml-auto flex items-center gap-2">
+        {isServerMode && !isElectron && (
+          <button
+            onClick={applyServerUpdate}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-accent text-void text-[11px] font-bold hover:bg-accent/90 transition-colors"
+          >
+            <DownloadIcon />
+            Apply Update
+          </button>
+        )}
+        {!isElectron && !isServerMode && (
           <a
             href={releaseUrl}
             target="_blank"
             rel="noreferrer"
-            className="underline underline-offset-2 text-accent hover:text-accent/80 transition-colors"
+            className="underline underline-offset-2 text-accent hover:text-accent/80 transition-colors text-[12.5px]"
           >
             View release →
           </a>
         )}
-      </span>
-      <button onClick={dismiss} className="ml-auto text-accent/50 hover:text-accent transition-colors">
-        <XIcon />
-      </button>
+        <button onClick={dismiss} className="text-accent/50 hover:text-accent transition-colors">
+          <XIcon />
+        </button>
+      </div>
     </div>
   );
 }
@@ -139,6 +161,15 @@ function UpdateIcon() {
     <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <polyline points="23 4 23 10 17 10" />
       <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}
+      className="animate-spin">
+      <path d="M21 12a9 9 0 11-6.219-8.56" />
     </svg>
   );
 }

@@ -280,6 +280,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Copy-Item -Recurse -Force api\dist "$dest\api-dist"
 
+          # Stamp version.json into api-dist so the runtime version endpoint reads correctly
+          "{`"version`":`"$ver`"}" | Set-Content "$dest\api-dist\version.json" -Encoding UTF8
+
           # Install API prod deps — workspace hoisting means api/node_modules doesn't exist
           Copy-Item -Force api\package.json "$dest\package.json"
           Push-Location $dest

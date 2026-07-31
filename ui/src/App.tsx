@@ -20,6 +20,11 @@ import Cluster from './views/Cluster';
 
 /** True when running inside the Electron desktop shell. */
 const isElectron = !!window.palbox?.isElectron;
+/**
+ * True when served from the headless server package (no Electron, but accessed
+ * via a browser — meaning the API can perform a self-update via PowerShell).
+ */
+const isServerMode = !isElectron && typeof window !== 'undefined';
 
 function AppShell() {
   const { instances, active, setActiveId } = useInstance();
@@ -28,7 +33,7 @@ function AppShell() {
   return (
     <div className="flex flex-col h-screen bg-void text-bone overflow-hidden">
       <Titlebar isElectron={isElectron} onToggleMode={() => {}} />
-      <UpdateBanner updater={updater} isElectron={isElectron} />
+      <UpdateBanner updater={updater} isElectron={isElectron} isServerMode={isServerMode} />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar instances={instances} active={active} setActiveId={setActiveId} isElectron={isElectron} />
         <Routes>

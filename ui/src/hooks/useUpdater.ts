@@ -2,24 +2,25 @@ import { useState, useEffect, useRef } from 'react';
 
 export type UpdatePhase =
   | 'idle'
-  | 'available'     // update found, downloading (Electron) or link shown (browser)
-  | 'downloading'   // Electron only — download in progress
-  | 'ready'         // Electron only — downloaded, ready to install
+  | 'available'    // update found
+  | 'downloading'  // Electron only
+  | 'ready'        // Electron only — downloaded, waiting for restart
+  | 'applying'     // server mode — update triggered, service restarting
   | 'error';
 
 export interface UpdateState {
   phase:      UpdatePhase;
   version:    string | null;
-  percent:    number;            // 0–100, meaningful only during 'downloading'
+  percent:    number;
   releaseUrl: string;
   error:      string | null;
   dismiss:    () => void;
-  install:    () => void;        // Electron only — quits and installs
+  install:    () => void;          // Electron: quit & install
+  applyServerUpdate: () => void;   // Browser/server: trigger self-update via API
 }
 
 const GITHUB_RELEASES = 'https://github.com/JaredScar/Palbox-Manager/releases/latest';
 
-/** Works in both Electron (via contextBridge IPC) and plain browser (via API polling). */
 export function useUpdater(): UpdateState {
   const [phase,      setPhase]      = useState<UpdatePhase>('idle');
   const [version,    setVersion]    = useState<string | null>(null);
@@ -34,15 +35,27 @@ export function useUpdater(): UpdateState {
     setPhase('idle');
   };
 
-  const install = () => {
-    window.palbox?.installUpdate();
+  const install = () => window.palbox?.installUpdate();
+
+  const applyServerUpdate = async () => {
+    setPhase('applying');
+    try {
+      const res = await fetch('/api/app-version/update', { method: 'POST', credentials: 'include' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+        throw new Error(body.error ?? res.statusText);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+      setPhase('error');
+    }
   };
 
   useEffect(() => {
     const palbox = window.palbox;
 
     if (palbox) {
-      // ── Electron mode: subscribe to IPC events ──────────────────────────
+      // ── Electron mode ─────────────────────────────────────────────────────
       const offAvailable  = palbox.onUpdateAvailable((info) => {
         if (dismissed.current) return;
         setVersion(info.version);
@@ -56,44 +69,36 @@ export function useUpdater(): UpdateState {
       const offDownloaded = palbox.onUpdateDownloaded((info) => {
         setVersion(info.version);
         setPhase('ready');
-        dismissed.current = false; // always show the "restart" prompt
+        dismissed.current = false;
       });
-      const offError      = palbox.onUpdateError((msg) => {
+      const offError = palbox.onUpdateError((msg) => {
         setError(msg);
         setPhase('error');
       });
-
-      return () => {
-        offAvailable();
-        offProgress();
-        offDownloaded();
-        offError();
-      };
+      return () => { offAvailable(); offProgress(); offDownloaded(); offError(); };
     } else {
-      // ── Browser / headless mode: poll the API ───────────────────────────
+      // ── Browser / headless mode: poll the API ─────────────────────────────
       const check = async () => {
         if (dismissed.current) return;
         try {
-          const res  = await fetch('/api/app-version');
+          const res  = await fetch('/api/app-version', { credentials: 'include' });
           if (!res.ok) return;
           const data = await res.json() as {
-            updateAvailable: boolean;
-            latest: string;
-            releaseUrl: string;
+            updateAvailable: boolean; latest: string; releaseUrl: string;
           };
           if (data.updateAvailable) {
             setVersion(data.latest);
             setReleaseUrl(data.releaseUrl ?? GITHUB_RELEASES);
             setPhase('available');
           }
-        } catch { /* network unavailable — ignore */ }
+        } catch { /* offline */ }
       };
 
       check();
-      const id = setInterval(check, 6 * 60 * 60 * 1000); // recheck every 6 h
+      const id = setInterval(check, 6 * 60 * 60 * 1000);
       return () => clearInterval(id);
     }
   }, []);
 
-  return { phase, version, percent, releaseUrl, error, dismiss, install };
+  return { phase, version, percent, releaseUrl, error, dismiss, install, applyServerUpdate };
 }
