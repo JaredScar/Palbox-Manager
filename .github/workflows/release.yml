@@ -199,18 +199,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag  = "${{ steps.version.outputs.TAG }}"
-          $zip  = "${{ steps.server-zip.outputs.PATH }}"
-          $exe  = "${{ steps.electron-artifact.outputs.PATH }}"
-          $pre  = "${{ steps.notes.outputs.PRERELEASE }}"
+          $tag = "${{ steps.version.outputs.TAG }}"
+          $zip = "${{ steps.server-zip.outputs.PATH }}"
+          $exe = "${{ steps.electron-artifact.outputs.PATH }}"
+          $pre = "${{ steps.notes.outputs.PRERELEASE }}"
 
-          $preFlag = if ($pre -eq 'true') { '--prerelease' } else { '' }
+          # Build argument list as an array so an empty $preFlag is never passed
+          $args = @(
+            'release', 'create', $tag,
+            '--title', "Palbox $tag",
+            '--notes-file', 'release-notes.md',
+            $zip, $exe
+          )
+          if ($pre -eq 'true') { $args += '--prerelease' }
 
-          gh release create $tag `
-            --title "Palbox $tag" `
-            --notes-file release-notes.md `
-            $preFlag `
-            $zip `
-            $exe
-
+          gh @args
           Write-Host "✓ Release $tag created."
