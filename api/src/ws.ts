@@ -13,17 +13,39 @@ interface TaggedWs extends WebSocket {
 
 const clients = new Set<TaggedWs>();
 
+// ── Per-instance in-memory ring buffer ───────────────────────────────────────
+const LOG_BUFFER_SIZE = 500;
+const logBuffers = new Map<number, string[]>();
+
+function bufferLine(instanceId: number, line: string): void {
+  if (!logBuffers.has(instanceId)) logBuffers.set(instanceId, []);
+  const buf = logBuffers.get(instanceId)!;
+  buf.push(line);
+  if (buf.length > LOG_BUFFER_SIZE) buf.shift();
+}
+
+// ── WebSocket server ──────────────────────────────────────────────────────────
 export function initWss(server: http.Server): void {
   wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', (ws: TaggedWs, req) => {
-    // Parse ?instance=N from the WS URL
     const url = new URL(req.url ?? '/', 'http://localhost');
     const instanceId = parseInt(url.searchParams.get('instance') ?? '1', 10);
     ws.instanceId = isNaN(instanceId) ? 1 : instanceId;
 
     clients.add(ws);
     log.info(`WS client connected (instance=${ws.instanceId})`);
+
+    // Send buffered history so the console isn't empty on first open
+    const history = logBuffers.get(ws.instanceId) ?? [];
+    if (history.length > 0) {
+      for (const line of history) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'log', instanceId: ws.instanceId, line }), () => {});
+        }
+      }
+    }
+
     ws.on('close', () => clients.delete(ws));
     ws.on('error', () => clients.delete(ws));
   });
@@ -42,33 +64,82 @@ export function broadcast(data: Record<string, unknown>): void {
   }
 }
 
-const tailWatchers = new Map<number, fs.FSWatcher>();
+// ── Log tail (polling — more reliable than fs.watch on Windows) ───────────────
+const tailIntervals = new Map<number, ReturnType<typeof setInterval>>();
+const POLL_MS = 1000; // check every second
 
 export function startLogTail(inst: Instance): void {
-  tailWatchers.get(inst.id)?.close();
+  // Stop any existing poller for this instance
+  const existing = tailIntervals.get(inst.id);
+  if (existing) clearInterval(existing);
+  tailIntervals.delete(inst.id);
 
   const logFile = inst.log_file;
-  if (!logFile) return;
-
-  if (!fs.existsSync(logFile)) {
-    setTimeout(() => startLogTail(inst), 15_000);
+  if (!logFile) {
+    log.warn(`[${inst.name}] No log_file configured — console live stream disabled.`);
     return;
   }
 
-  let fileSize = fs.statSync(logFile).size;
-  // Read last 8 KB on attach
-  const stream = fs.createReadStream(logFile, { start: Math.max(0, fileSize - 8192), encoding: 'utf8' });
-  const rl = readline.createInterface({ input: stream });
-  rl.on('line', (line) => broadcast({ type: 'log', instanceId: inst.id, line }));
-  rl.on('close', () => {
-    const watcher = fs.watch(logFile, () => {
-      const newSize = fs.statSync(logFile).size;
-      if (newSize <= fileSize) { fileSize = newSize; return; }
-      const chunk = fs.createReadStream(logFile, { start: fileSize, encoding: 'utf8' });
-      fileSize = newSize;
-      const rl2 = readline.createInterface({ input: chunk });
-      rl2.on('line', (line) => { if (line) broadcast({ type: 'log', instanceId: inst.id, line }); });
-    });
-    tailWatchers.set(inst.id, watcher);
-  });
+  // Wait until the file exists, then start
+  function waitAndStart() {
+    if (!fs.existsSync(logFile)) {
+      log.info(`[${inst.name}] Log file not found yet, will retry in 15s: ${logFile}`);
+      setTimeout(waitAndStart, 15_000);
+      return;
+    }
+
+    let fileSize = 0;
+    try { fileSize = fs.statSync(logFile).size; } catch { return; }
+
+    // Send the last 8 KB of existing content to the buffer so new clients get history
+    const startPos = Math.max(0, fileSize - 8192);
+    try {
+      const stream = fs.createReadStream(logFile, { start: startPos, encoding: 'utf8' });
+      const rl = readline.createInterface({ input: stream });
+      rl.on('line', (line) => {
+        if (!line.trim()) return;
+        bufferLine(inst.id, line);
+        // Broadcast to any clients already connected (e.g. after service restart)
+        broadcast({ type: 'log', instanceId: inst.id, line });
+      });
+    } catch (e) {
+      log.warn(`[${inst.name}] Could not read initial log content:`, e);
+    }
+
+    // Poll for new content every second (reliable on Windows with NSSM)
+    const timer = setInterval(() => {
+      try {
+        const stat = fs.statSync(logFile);
+        const newSize = stat.size;
+
+        if (newSize < fileSize) {
+          // File was rotated / truncated — reset position
+          fileSize = 0;
+        }
+
+        if (newSize > fileSize) {
+          const chunk = fs.createReadStream(logFile, { start: fileSize, end: newSize - 1, encoding: 'utf8' });
+          fileSize = newSize;
+          const rl2 = readline.createInterface({ input: chunk });
+          rl2.on('line', (line) => {
+            if (!line.trim()) return;
+            bufferLine(inst.id, line);
+            broadcast({ type: 'log', instanceId: inst.id, line });
+          });
+        }
+      } catch {
+        // File disappeared (server stopped) — will resume on next stat success
+      }
+    }, POLL_MS);
+
+    tailIntervals.set(inst.id, timer);
+    log.info(`[${inst.name}] Log tail started: ${logFile}`);
+  }
+
+  waitAndStart();
+}
+
+export function stopLogTail(instanceId: number): void {
+  const t = tailIntervals.get(instanceId);
+  if (t) { clearInterval(t); tailIntervals.delete(instanceId); }
 }
