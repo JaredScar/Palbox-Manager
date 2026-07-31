@@ -358,9 +358,11 @@ if (-not $NoService) {
         & nssm remove $ServiceName confirm 2>&1 | Out-Null
     }
 
+    $uiDistPath = Join-Path $InstallPath 'ui-dist'
+
     & nssm install $ServiceName $nodeExe $apiScript
     & nssm set $ServiceName AppDirectory $InstallPath
-    & nssm set $ServiceName AppEnvironmentExtra "DOTENV_CONFIG_PATH=$envPath"
+    & nssm set $ServiceName AppEnvironmentExtra "DOTENV_CONFIG_PATH=$envPath" "UI_DIST=$uiDistPath"
     & nssm set $ServiceName AppStdout (Join-Path $InstallPath 'palbox.log')
     & nssm set $ServiceName AppStderr (Join-Path $InstallPath 'palbox-error.log')
     & nssm set $ServiceName AppRotateFiles 1

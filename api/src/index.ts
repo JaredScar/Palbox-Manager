@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import fs from 'fs';
 import { cfg } from './config.js';
 import { getDb } from './db/index.js';
 import type { Instance } from './db/types.js';
@@ -69,8 +70,25 @@ app.use('/api/app-version', appVersionRoutes);
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-// Serve built SPA
-const uiDist = path.join(__dirname, '../../ui/dist');
+// Resolve the UI static-file directory.
+//
+// The compiled API lives in different locations depending on how Palbox is
+// deployed, so we probe a priority-ordered list of candidates:
+//
+//  1. UI_DIST env var  — set explicitly by Electron main.ts or NSSM config
+//  2. ../ui-dist       — server ZIP package: <install>/api-dist/ → <install>/ui-dist/
+//  3. ../../ui/dist    — monorepo dev build and Electron extraResources layout
+//
+function resolveUiDist(): string {
+  if (process.env.UI_DIST) return process.env.UI_DIST;
+  const candidates = [
+    path.join(__dirname, '../ui-dist'),   // server package
+    path.join(__dirname, '../../ui/dist'), // monorepo / Electron
+  ];
+  return candidates.find(p => fs.existsSync(p)) ?? candidates[candidates.length - 1];
+}
+
+const uiDist = resolveUiDist();
 app.use(express.static(uiDist));
 app.get('*', (_req, res) => {
   res.sendFile(path.join(uiDist, 'index.html'), (err) => {
