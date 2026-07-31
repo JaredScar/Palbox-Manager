@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Palbox — Server-side installer for the Palworld management panel.
+    Palbox -- Server-side installer for the Palworld management panel.
 
 .DESCRIPTION
     Extracts the Palbox API, prompts for configuration, writes .env,
@@ -37,7 +37,7 @@ function Write-Header {
     param([string]$Text)
     Write-Host ""
     Write-Host "  $Text" -ForegroundColor Cyan
-    Write-Host ("  " + ("─" * ($Text.Length))) -ForegroundColor DarkGray
+    Write-Host ("  " + ("-" * ($Text.Length))) -ForegroundColor DarkGray
 }
 
 function Prompt-Value {
@@ -80,10 +80,10 @@ function Install-NodeJS {
             # Refresh PATH in this session
             $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' +
                         [Environment]::GetEnvironmentVariable('PATH','User')
-            Write-Host "  ✓ Node.js installed via winget." -ForegroundColor Green
+            Write-Host "  [OK] Node.js installed via winget." -ForegroundColor Green
             return
         }
-        Write-Host "  winget returned $($wg.ExitCode) — falling back to MSI download." -ForegroundColor Yellow
+        Write-Host "  winget returned $($wg.ExitCode) -- falling back to MSI download." -ForegroundColor Yellow
     }
 
     # Fall back: download the MSI from nodejs.org
@@ -94,7 +94,7 @@ function Install-NodeJS {
     try {
         Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath -UseBasicParsing
     } catch {
-        Write-Host "  ✗ Download failed: $_" -ForegroundColor Red
+        Write-Host "  [FAIL] Download failed: $_" -ForegroundColor Red
         Write-Host "    Please install Node.js 22 manually: https://nodejs.org" -ForegroundColor Yellow
         exit 1
     }
@@ -107,7 +107,7 @@ function Install-NodeJS {
 
     # Exit code 3010 = success, reboot required (safe to ignore for services)
     if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
-        Write-Host "  ✗ Node.js MSI install failed (exit code $($proc.ExitCode))." -ForegroundColor Red
+        Write-Host "  [FAIL] Node.js MSI install failed (exit code $($proc.ExitCode))." -ForegroundColor Red
         exit 1
     }
 
@@ -115,21 +115,18 @@ function Install-NodeJS {
     $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' +
                 [Environment]::GetEnvironmentVariable('PATH','User')
 
-    Write-Host "  ✓ Node.js v$nodeVersion installed." -ForegroundColor Green
+    Write-Host "  [OK] Node.js v$nodeVersion installed." -ForegroundColor Green
 }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 
 Clear-Host
 Write-Host ""
-Write-Host "  ██████╗  █████╗ ██╗     ██████╗  ██████╗ ██╗  ██╗" -ForegroundColor Magenta
-Write-Host "  ██╔══██╗██╔══██╗██║     ██╔══██╗██╔═══██╗╚██╗██╔╝" -ForegroundColor Magenta
-Write-Host "  ██████╔╝███████║██║     ██████╔╝██║   ██║ ╚███╔╝ " -ForegroundColor Magenta
-Write-Host "  ██╔═══╝ ██╔══██║██║     ██╔══██╗██║   ██║ ██╔██╗ " -ForegroundColor Magenta
-Write-Host "  ██║     ██║  ██║███████╗██████╔╝╚██████╔╝██╔╝ ██╗" -ForegroundColor Magenta
-Write-Host "  ╚═╝     ╚═╝  ╚═╝╚══════╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝" -ForegroundColor Magenta
+Write-Host "  ==========================================" -ForegroundColor Magenta
+Write-Host "   PALBOX - Palworld Server Management Panel" -ForegroundColor Magenta
+Write-Host "  ==========================================" -ForegroundColor Magenta
 Write-Host ""
-Write-Host "  Palworld Server Management Panel — Installer" -ForegroundColor White
+Write-Host "  Installer v0.2.9" -ForegroundColor White
 Write-Host ""
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
@@ -142,13 +139,13 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
     $nodeVerStr = (node --version 2>&1).ToString().TrimStart('v')
     $nodeMajor  = [int]($nodeVerStr.Split('.')[0])
     if ($nodeMajor -ge 22) {
-        Write-Host "  ✓ Node.js v$nodeVerStr" -ForegroundColor Green
+        Write-Host "  [OK] Node.js v$nodeVerStr" -ForegroundColor Green
         $nodeOk = $true
     } else {
-        Write-Host "  ⚠ Node.js v$nodeVerStr found but v22+ is required." -ForegroundColor Yellow
+        Write-Host "  [!]  Node.js v$nodeVerStr found but v22+ is required." -ForegroundColor Yellow
     }
 } else {
-    Write-Host "  ✗ Node.js not found." -ForegroundColor Red
+    Write-Host "  [FAIL] Node.js not found." -ForegroundColor Red
 }
 
 if (-not $nodeOk) {
@@ -161,7 +158,7 @@ if (-not $nodeOk) {
     Install-NodeJS
     # Re-validate after install
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-        Write-Host "  ✗ node not found on PATH after install. You may need to open a new terminal." -ForegroundColor Red
+        Write-Host "  [FAIL] node not found on PATH after install. You may need to open a new terminal." -ForegroundColor Red
         exit 1
     }
 }
@@ -179,7 +176,7 @@ function Install-NSSM {
     try {
         Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
     } catch {
-        Write-Host "  ✗ NSSM download failed: $_" -ForegroundColor Red
+        Write-Host "  [FAIL] NSSM download failed: $_" -ForegroundColor Red
         Write-Host "    Please install NSSM manually: https://nssm.cc/download" -ForegroundColor Yellow
         exit 1
     }
@@ -202,16 +199,16 @@ function Install-NSSM {
     $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' +
                 [Environment]::GetEnvironmentVariable('PATH','User')
 
-    Write-Host "  ✓ NSSM installed to $exePath" -ForegroundColor Green
+    Write-Host "  [OK] NSSM installed to $exePath" -ForegroundColor Green
 }
 
 # ── NSSM prerequisite check ───────────────────────────────────────────────────
 
 if (-not $NoService) {
     if (Get-Command nssm -ErrorAction SilentlyContinue) {
-        Write-Host "  ✓ NSSM found" -ForegroundColor Green
+        Write-Host "  [OK] NSSM found" -ForegroundColor Green
     } else {
-        Write-Host "  ✗ NSSM not found in PATH." -ForegroundColor Red
+        Write-Host "  [FAIL] NSSM not found in PATH." -ForegroundColor Red
         $installNssm = Prompt-Value "Install NSSM 2.24 automatically? (Y/n)" "Y"
         if ($installNssm -eq 'n') {
             Write-Host "    Download manually: https://nssm.cc/download" -ForegroundColor Yellow
@@ -221,7 +218,7 @@ if (-not $NoService) {
         } else {
             Install-NSSM
             if (-not (Get-Command nssm -ErrorAction SilentlyContinue)) {
-                Write-Host "  ✗ nssm still not on PATH after install — please open a new terminal and re-run." -ForegroundColor Red
+                Write-Host "  [FAIL] nssm still not on PATH after install -- please open a new terminal and re-run." -ForegroundColor Red
                 exit 1
             }
         }
@@ -248,14 +245,14 @@ $items = @('api-dist', 'node_modules', 'ui-dist')
 foreach ($item in $items) {
     $src = Join-Path $scriptDir $item
     if (-not (Test-Path $src)) {
-        Write-Host "  ✗ Missing: $src" -ForegroundColor Red
+        Write-Host "  [FAIL] Missing: $src" -ForegroundColor Red
         Write-Host "    Make sure you extracted the full .zip archive." -ForegroundColor Yellow
         exit 1
     }
     $dest = Join-Path $InstallPath $item
     Write-Host "  Copying $item ..." -ForegroundColor Gray
     Copy-Item -Recurse -Force $src $dest
-    Write-Host "  ✓ $item" -ForegroundColor Green
+    Write-Host "  [OK] $item" -ForegroundColor Green
 }
 
 # ── Configuration wizard ──────────────────────────────────────────────────────
@@ -275,7 +272,7 @@ $jwtSecret = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenera
 $apiPort   = Prompt-Value "API port" "4000"
 
 Write-Host ""
-Write-Host "  ── PalServer paths ──" -ForegroundColor DarkGray
+Write-Host "  -- PalServer paths --" -ForegroundColor DarkGray
 
 $palserverDir   = Prompt-Value "PalServer directory"        "C:\PalServer"
 $palserverExe   = Prompt-Value "PalServer.exe path"         "$palserverDir\Pal\Binaries\Win64\PalServer-Win64-Shipping-Cmd.exe"
@@ -284,14 +281,14 @@ $palserviceName = Prompt-Value "PalServer NSSM service name" "PalServer"
 $palserverLog   = Prompt-Value "PalServer log file"         "$palserverDir\Pal\Saved\Logs\PalServer.log"
 
 Write-Host ""
-Write-Host "  ── RCON ──" -ForegroundColor DarkGray
+Write-Host "  -- RCON --" -ForegroundColor DarkGray
 
 $rconHost = Prompt-Value "RCON host" "127.0.0.1"
 $rconPort = Prompt-Value "RCON port" "25575"
 $rconPass = Prompt-Value "RCON password" "" -Password
 
 Write-Host ""
-Write-Host "  ── Backups ──" -ForegroundColor DarkGray
+Write-Host "  -- Backups --" -ForegroundColor DarkGray
 
 $backupDir  = Prompt-Value "Backup output directory" "C:\PalboxBackups"
 $saveDir    = Prompt-Value "Save data directory"     "$palserverDir\Pal\Saved"
@@ -299,7 +296,7 @@ $modsDir    = Prompt-Value "Mods directory"          "$palserverDir\Pal\Binaries
 $steamcmd   = Prompt-Value "SteamCMD path"           "C:\steamcmd\steamcmd.exe"
 
 Write-Host ""
-Write-Host "  ── Discord (optional) ──" -ForegroundColor DarkGray
+Write-Host "  -- Discord (optional) --" -ForegroundColor DarkGray
 
 $discordWebhook = Prompt-Value "Discord webhook URL (leave blank to skip)" ""
 
@@ -310,7 +307,7 @@ Write-Header "Writing configuration"
 $envPath = Join-Path $InstallPath '.env'
 
 $envContent = @"
-# Palbox configuration — generated by installer on $(Get-Date -Format 'yyyy-MM-dd HH:mm')
+# Palbox configuration -- generated by installer on $(Get-Date -Format 'yyyy-MM-dd HH:mm')
 
 ADMIN_USERNAME=$adminUser
 ADMIN_PASSWORD=$adminPass
@@ -341,7 +338,7 @@ PALBOX_SERVICE=$ServiceName
 "@
 
 Set-Content -Path $envPath -Value $envContent -Encoding UTF8
-Write-Host "  ✓ .env written to $envPath" -ForegroundColor Green
+Write-Host "  [OK] .env written to $envPath" -ForegroundColor Green
 
 # ── NSSM service ──────────────────────────────────────────────────────────────
 
@@ -368,10 +365,10 @@ if (-not $NoService) {
     & nssm set $ServiceName AppRotateFiles 1
     & nssm set $ServiceName AppRotateBytes 10485760
     & nssm set $ServiceName Start SERVICE_AUTO_START
-    & nssm set $ServiceName DisplayName 'Palbox — Palworld Server Panel'
+    & nssm set $ServiceName DisplayName 'Palbox - Palworld Server Panel'
     & nssm set $ServiceName Description  'Self-hosted Palworld server management API.'
 
-    Write-Host "  ✓ Service '$ServiceName' registered" -ForegroundColor Green
+    Write-Host "  [OK] Service '$ServiceName' registered" -ForegroundColor Green
 
     $startNow = Prompt-Value "Start service now? (Y/n)" "Y"
     if ($startNow -ne 'n') {
@@ -386,13 +383,13 @@ if (-not $NoService) {
 
 $port = $apiPort
 Write-Host ""
-Write-Host "  ════════════════════════════════════════════════" -ForegroundColor Magenta
-Write-Host "  ✓ Palbox installed successfully!" -ForegroundColor Green
+Write-Host "  ==========================================" -ForegroundColor Magenta
+Write-Host "  [OK] Palbox installed successfully!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Open the panel at: http://localhost:$port" -ForegroundColor White
 if (-not $NoService) {
     Write-Host "  Service '$ServiceName' will start automatically on boot." -ForegroundColor White
 }
 Write-Host "  To edit config: $envPath" -ForegroundColor DarkGray
-Write-Host "  ════════════════════════════════════════════════" -ForegroundColor Magenta
+Write-Host "  ==========================================" -ForegroundColor Magenta
 Write-Host ""
