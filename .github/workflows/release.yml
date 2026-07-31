@@ -159,9 +159,9 @@ jobs:
           cp api/package.json api-bundle/
           cd api-bundle && npm install --omit=dev
 
-      - name: Build macOS installer (universal DMG)
+      - name: Build macOS installer (ARM64 DMG)
         working-directory: electron
-        run: npx electron-builder --mac --universal --publish=never
+        run: npx electron-builder --mac --arm64 --publish=never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -335,8 +335,7 @@ jobs:
             echo "| File | Platform | Description |"
             echo "|------|----------|-------------|"
             echo "| \`Palbox-Setup-$VER-windows.exe\` | Windows | NSIS installer — guided setup with Node.js auto-install |"
-            echo "| \`Palbox-Setup-$VER-windows.msi\` | Windows | MSI installer — for enterprise / Group Policy deployments |"
-            echo "| \`Palbox-$VER-mac.dmg\` | macOS (Universal) | DMG — works on both Intel and Apple Silicon |"
+            echo "| \`Palbox-$VER-mac-arm64.dmg\` | macOS | DMG — native on Apple Silicon, works on Intel via Rosetta 2 |"
             echo "| \`Palbox-$VER-linux-x64.AppImage\` | Linux | Portable AppImage — no install needed |"
             echo "| \`Palbox-$VER-linux-x64.deb\` | Linux | Debian/Ubuntu package |"
             echo "| \`palbox-server-$VER.zip\` | Windows Server | Headless server package + PowerShell setup wizard |"

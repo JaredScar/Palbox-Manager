@@ -14,13 +14,12 @@ Go to the [**Releases**](../../releases/latest) page and grab the installer for 
 | File | Platform |
 |------|----------|
 | `Palbox-Setup-vX.Y.Z-windows.exe` | Windows — NSIS guided installer |
-| `Palbox-Setup-vX.Y.Z-windows.msi` | Windows — MSI (Group Policy / silent installs) |
-| `Palbox-vX.Y.Z-mac.dmg` | macOS — Universal (Intel + Apple Silicon) |
+| `Palbox-vX.Y.Z-mac-arm64.dmg` | macOS — native on Apple Silicon, works on Intel via Rosetta 2 |
 | `Palbox-vX.Y.Z-linux-x64.AppImage` | Linux — portable, no install required |
 | `Palbox-vX.Y.Z-linux-x64.deb` | Linux — Debian/Ubuntu package |
 
 **Windows:** Node.js 22 is automatically detected and installed if missing.  
-**macOS:** After opening the DMG, right-click → *Open* if macOS warns about an unverified developer.  
+**macOS (ARM64 / Apple Silicon):** Works natively; Intel Mac users can run it via Rosetta 2. Right-click → *Open* if macOS warns about an unverified developer.  
 **Linux (AppImage):** `chmod +x Palbox-*.AppImage && ./Palbox-*.AppImage`
 
 On first launch Palbox creates a config file at the platform's user-data directory and opens the panel in a desktop window.
