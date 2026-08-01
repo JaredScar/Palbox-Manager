@@ -134,7 +134,7 @@ router.post('/update', requireAuth, async (_req, res) => {
     fs.mkdirSync(updateDir, { recursive: true });
 
     // ── Write the first log lines from Node so there is always a trail ──────
-    const firstLine = `${new Date().toISOString()}  Palbox update to v${info.latest} initiated by API — downloading ${asset.name}\r\n`;
+    const firstLine = `${new Date().toISOString()}  Palbox update to v${info.latest} initiated -- downloading ${asset.name}\r\n`;
     fs.writeFileSync(logFile, firstLine, 'utf8');
 
     // ── Download ZIP (follow GitHub CDN redirects) ─────────────────────────
@@ -164,7 +164,7 @@ router.post('/update', requireAuth, async (_req, res) => {
     // Escape single-quote-sensitive strings for PS single-quoted literals
     const esc = (s: string) => s.replace(/'/g, "''");
 
-    const ps = `# Palbox self-update — ${new Date().toISOString()}
+    const ps = `# Palbox self-update -- ${new Date().toISOString()}
 $ErrorActionPreference = 'Continue'
 $logFile      = '${esc(logFile)}'
 $transcriptF  = '${esc(transcriptFile)}'
@@ -173,10 +173,10 @@ $extractDir   = '${esc(extractDir)}'
 $installDir   = '${esc(installDir)}'
 $svcName      = '${esc(palboxService)}'
 
-# Start-Transcript captures EVERYTHING — failsafe if Log() ever misfires
+# Start-Transcript captures EVERYTHING -- failsafe if Log() ever misfires
 try { Start-Transcript -Path $transcriptF -Append -Force | Out-Null } catch {}
 
-# Log() uses .NET file I/O directly — no PS host/output-stream dependency
+# Log() uses .NET file I/O directly -- no PS host/output-stream dependency
 function Log {
   param($m)
   $ts   = [System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -194,7 +194,7 @@ Log "installDir : $installDir"
 Log "svcName    : $svcName"
 Log "zipPath    : $zipPath"
 
-# Locate nssm.exe — fixed paths first to avoid slow PATH scan
+# Locate nssm.exe -- fixed paths first to avoid slow PATH scan
 $nssmExe = $null
 $candidates = @(
   'C:\\nssm\\nssm.exe',
@@ -214,7 +214,7 @@ if (-not $nssmExe) {
 }
 
 if ($nssmExe) { Log "nssm       : $nssmExe" }
-else          { Log 'WARNING: nssm not found — service restart will be skipped' }
+else          { Log 'WARNING: nssm not found -- service restart will be skipped' }
 
 Log 'Waiting 10 seconds for Node.js API to finish responding...'
 Start-Sleep -Seconds 10
@@ -281,15 +281,17 @@ if ($nssmExe) {
   $st = (& $nssmExe status $svcName 2>&1) -join ''
   Log "Service status: $st"
 } else {
-  Log "WARNING: start '$svcName' manually — nssm not found."
+  Log "WARNING: nssm not found -- start '$svcName' manually."
 }
 
 Log '=== apply-update.ps1 complete ==='
 try { Stop-Transcript | Out-Null } catch {}
 `;
 
-    fs.writeFileSync(psScript, ps, 'utf8');
-    fs.appendFileSync(logFile, `${new Date().toISOString()}  Script written to ${psScript} — launching detached PowerShell\r\n`);
+    // Write with UTF-8 BOM (\uFEFF) so PowerShell 5.1 detects the encoding
+    // correctly on any system locale, avoiding garbled multi-byte characters.
+    fs.writeFileSync(psScript, '\uFEFF' + ps, 'utf8');
+    fs.appendFileSync(logFile, `${new Date().toISOString()}  Script written to ${psScript} -- launching detached PowerShell\r\n`);
 
     // ── Spawn PowerShell detached ──────────────────────────────────────────
     // detached: true + unref() = the child process gets its own process group
@@ -310,7 +312,7 @@ try { Stop-Transcript | Out-Null } catch {}
       version: info.latest,
       logFile,
       transcriptFile,
-      message: `Updating to v${info.latest}. The panel will restart in ~20 seconds. Progress log: ${logFile} — full transcript: ${transcriptFile}`,
+      message: `Updating to v${info.latest}. The panel will restart in ~20 seconds. Progress: ${logFile} | Transcript: ${transcriptFile}`,
     });
   } catch (e) {
     const msg = (e as Error).message;
