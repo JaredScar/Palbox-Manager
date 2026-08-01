@@ -39,13 +39,21 @@ export function forgetInstanceHosts(instanceId: number): void {
   workingHost.delete(cacheKey(instanceId, 'rest'));
 }
 
-/** Hosts to try, best-known first, with no duplicates. */
-function candidateHosts(inst: Instance, proto: Proto): string[] {
+/**
+ * Hosts to try, best-known first, with no duplicates. The public IP is
+ * included because Palworld can end up bound to that interface alone, in
+ * which case loopback fails even though the service is running locally.
+ */
+export function candidateHosts(inst: Instance, proto: Proto): string[] {
   const hosts: string[] = [];
-  const remembered = workingHost.get(cacheKey(inst.id, proto));
-  if (remembered) hosts.push(remembered);
-  if (inst.rcon_host && !hosts.includes(inst.rcon_host)) hosts.push(inst.rcon_host);
-  if (!isLoopback(inst.rcon_host) && !hosts.includes(LOOPBACK)) hosts.push(LOOPBACK);
+  const push = (h: string | null | undefined) => {
+    const v = (h ?? '').trim();
+    if (v && !hosts.includes(v)) hosts.push(v);
+  };
+  push(workingHost.get(cacheKey(inst.id, proto)));
+  push(inst.rcon_host);
+  push(LOOPBACK);
+  push(inst.public_ip);
   return hosts;
 }
 
@@ -81,10 +89,23 @@ async function attempt<T>(
 
 // ── RCON ─────────────────────────────────────────────────────────────────────
 
-export function instRcon(inst: Instance, command: string, timeoutMs = 5000): Promise<string> {
-  return attempt(inst, 'rcon', (host) =>
-    rconExec(host, inst.rcon_port, inst.rcon_password, command, timeoutMs),
-  );
+/**
+ * Runs a command, preferring RCON. Palworld's REST API exposes the same
+ * command surface, so if RCON is unreachable on every candidate host the
+ * command still goes through and the panel keeps working.
+ */
+export async function instRcon(inst: Instance, command: string, timeoutMs = 5000): Promise<string> {
+  try {
+    return await attempt(inst, 'rcon', (host) =>
+      rconExec(host, inst.rcon_port, inst.rcon_password, command, timeoutMs),
+    );
+  } catch (rconErr) {
+    try {
+      return await instRestCommand(inst, command);
+    } catch {
+      throw rconErr; // the RCON failure is the more useful one to surface
+    }
+  }
 }
 
 // ── Palworld REST API ────────────────────────────────────────────────────────

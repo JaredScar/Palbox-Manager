@@ -39,6 +39,9 @@ function decodePackets(data: Buffer): RconPacket[] {
   return packets;
 }
 
+/** Reserved packet id for the authentication exchange. */
+const AUTH_ID = 1;
+
 export class RconClient {
   private host: string;
   private port: number;
@@ -47,6 +50,7 @@ export class RconClient {
   private buffer = Buffer.alloc(0);
   // Starts at 2 because the auth exchange reserves id 1.
   private reqId = 2;
+  private awaitingAuth = false;
   private pendingMap = new Map<number, { resolve: (v: string) => void; reject: (e: Error) => void }>();
 
   constructor(host: string, port: number, password: string) {
@@ -85,17 +89,29 @@ export class RconClient {
         resolve();
       };
 
+      // Only covers the TCP handshake. Keeping the connect and auth phases
+      // separate matters: "cannot reach the host" and "reached it but nothing
+      // spoke RCON back" have completely different causes.
       connectTimer = setTimeout(
-        () => fail(new Error(`RCON connect timed out after ${timeoutMs}ms (${this.host}:${this.port})`)),
+        () => fail(new Error(`RCON_UNREACHABLE: no TCP connection to ${this.host}:${this.port} within ${timeoutMs}ms`)),
         timeoutMs,
       );
 
       sock.connect(this.port, this.host, async () => {
+        clearTimeout(connectTimer);
+        this.awaitingAuth = true;
         try {
-          await this.sendRaw(SERVERDATA_AUTH, this.password, true);
+          await this.sendRaw(SERVERDATA_AUTH, this.password, true, timeoutMs);
           succeed();
         } catch (e) {
-          fail(e as Error);
+          const msg = (e as Error).message;
+          fail(
+            msg.includes('timed out')
+              ? new Error(`RCON_NO_REPLY: connected to ${this.host}:${this.port} but got no response to the auth request`)
+              : (e as Error),
+          );
+        } finally {
+          this.awaitingAuth = false;
         }
       });
 
@@ -108,16 +124,23 @@ export class RconClient {
           // otherwise a bad password silently waits out the request timeout.
           if (pkt.id === -1) {
             for (const [, h] of this.pendingMap) {
-              h.reject(new Error('RCON authentication failed — wrong password'));
+              h.reject(new Error('RCON_BAD_PASSWORD: server rejected the RCON password'));
             }
             this.pendingMap.clear();
             continue;
           }
-          const handler = this.pendingMap.get(pkt.id);
-          if (handler) {
-            this.pendingMap.delete(pkt.id);
-            handler.resolve(pkt.body);
-          }
+
+          // Palworld's RCON is a loose Source implementation and does not
+          // reliably echo the request id on the auth response, so while
+          // authenticating any inbound packet is taken as that response.
+          const key = this.pendingMap.has(pkt.id) ? pkt.id
+            : (this.awaitingAuth && this.pendingMap.has(AUTH_ID)) ? AUTH_ID
+            : null;
+          if (key === null) continue;
+
+          const handler = this.pendingMap.get(key)!;
+          this.pendingMap.delete(key);
+          handler.resolve(pkt.body);
         }
         // Consume processed data
         let consumed = 0;
@@ -146,7 +169,7 @@ export class RconClient {
   private sendRaw(type: number, body: string, isAuth = false, timeoutMs = 5000): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.socket) return reject(new Error('Not connected'));
-      const id = isAuth ? 1 : this.reqId++;
+      const id = isAuth ? AUTH_ID : this.reqId++;
       this.pendingMap.set(id, { resolve, reject });
       setTimeout(() => {
         if (this.pendingMap.has(id)) {

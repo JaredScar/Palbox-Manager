@@ -49,7 +49,7 @@ router.get('/status', requirePermission('server.view'), async (req, res) => {
       // Hard-capped: /status is polled every 10s by the dashboard, so a slow or
       // unreachable RCON host must degrade to the log-based list, never stall.
       const raw = await withTimeout(
-        instRcon(inst, 'ShowPlayers', 2500),
+        instRcon(inst, 'ShowPlayers', 1500),
         9000,
         'RCON ShowPlayers',
       );
