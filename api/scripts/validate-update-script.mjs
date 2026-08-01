@@ -25,7 +25,7 @@ const template = source.slice(start + 'const ps = `'.length, end);
 
 const esc = (s) => s.replace(/'/g, "''");
 const render = new Function('esc', 'installDir', 'palboxService', 'zipPath',
-  'extractDir', 'logFile', 'transcriptFile',
+  'extractDir', 'logFile', 'transcriptFile', 'markerFile',
   'return `' + template + '`;');
 
 const rendered = render(
@@ -36,6 +36,7 @@ const rendered = render(
   'C:\\PalboxUpdate\\extracted',
   'C:\\PalboxUpdate\\update.log',
   'C:\\PalboxUpdate\\transcript.log',
+  'C:\\PalboxUpdate\\started.marker',
 );
 
 const out = path.join(os.tmpdir(), 'palbox-apply-update-check.ps1');

@@ -906,6 +906,15 @@ function InstancesSection() {
 }
 
 /* ── App / panel self-update ──────────────────────────────────────────────── */
+interface SelfTest {
+  launched: boolean;
+  strategy: string | null;
+  attempts: { strategy: string; ok: boolean; detail: string }[];
+  ran: boolean;
+  result: Record<string, unknown> | null;
+  manualCommand: string;
+}
+
 function AppUpdateSection() {
   const [info, setInfo] = useState<{ current: string; latest: string; updateAvailable: boolean; releaseUrl: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -913,6 +922,22 @@ function AppUpdateSection() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [updateLog, setUpdateLog] = useState<string[]>([]);
+  const [testing, setTesting] = useState(false);
+  const [selfTest, setSelfTest] = useState<SelfTest | null>(null);
+
+  async function runSelfTest() {
+    setTesting(true);
+    setSelfTest(null);
+    try {
+      const res = await fetch('/api/app-version/update-selftest', { method: 'POST', credentials: 'include' });
+      const body = await res.json() as SelfTest & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? res.statusText);
+      setSelfTest(body);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setTesting(false);
+  }
 
   useEffect(() => {
     fetch('/api/app-version', { credentials: 'include' })
@@ -929,8 +954,12 @@ function AppUpdateSection() {
     setError(null);
     try {
       const res = await fetch('/api/app-version/update', { method: 'POST', credentials: 'include' });
-      const body = await res.json() as { ok?: boolean; message?: string; error?: string };
-      if (!res.ok) throw new Error(body.error ?? res.statusText);
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string; manualCommand?: string };
+      if (!res.ok) {
+        throw new Error(body.manualCommand
+          ? `${body.error ?? res.statusText}\n\nRun this from an elevated PowerShell on the server: ${body.manualCommand}`
+          : (body.error ?? res.statusText));
+      }
       setMessage(body.message ?? 'Update queued — the panel will restart shortly.');
       pollUpdateLog();
     } catch (e) {
@@ -988,7 +1017,48 @@ function AppUpdateSection() {
                 Applying…
               </div>
             )}
+            <Button variant="ghost" loading={testing} onClick={runSelfTest}>Diagnose updater</Button>
           </div>
+
+          {/* The updater stops this service partway through, so a launch that
+              never happened looks the same as one that worked. This runs the
+              same launch path against a harmless script to tell them apart. */}
+          {selfTest && (
+            <div className="p-3.5 rounded-xl border border-line text-[12.5px] space-y-2">
+              <div className={selfTest.ran ? 'text-lime' : 'text-rust'}>
+                {selfTest.ran
+                  ? `Updater can run scripts (via ${selfTest.strategy}).`
+                  : 'Updater could not get a script running. The update would not apply.'}
+              </div>
+              {selfTest.result && (
+                <div className="text-fog">
+                  Ran as <span className="font-mono">{String(selfTest.result.user)}</span>
+                  {' · '}PowerShell <span className="font-mono">{String(selfTest.result.psVersion ?? '')}</span>
+                  {' · '}
+                  <span className={selfTest.result.isAdmin ? 'text-lime' : 'text-rust'}>
+                    {selfTest.result.isAdmin ? 'Administrator' : 'NOT Administrator'}
+                  </span>
+                  {selfTest.result.isAdmin === false && (
+                    <div className="mt-1">
+                      Service control needs Administrator, so the update would stall when it tries to
+                      stop the panel service.
+                    </div>
+                  )}
+                </div>
+              )}
+              <ul className="text-fog/70 font-mono text-[11.5px] space-y-0.5">
+                {selfTest.attempts.map((a, i) => (
+                  <li key={i}>{a.ok ? '✓' : '✗'} {a.strategy} — {a.detail}</li>
+                ))}
+              </ul>
+              {!selfTest.ran && (
+                <div className="text-fog">
+                  Run this from an elevated PowerShell on the server to update manually:
+                  <div className="mt-1 font-mono text-[11.5px] text-bone break-all">{selfTest.manualCommand}</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {message && (
             <div className="p-3.5 rounded-xl bg-lime/6 border border-lime/30 text-lime text-[12.5px] leading-relaxed">
@@ -1009,7 +1079,7 @@ function AppUpdateSection() {
             </div>
           )}
           {error && (
-            <div className="p-3.5 rounded-xl bg-rust/8 border border-rust/30 text-rust text-[12.5px]">
+            <div className="p-3.5 rounded-xl bg-rust/8 border border-rust/30 text-rust text-[12.5px] whitespace-pre-wrap break-all">
               {error}
             </div>
           )}

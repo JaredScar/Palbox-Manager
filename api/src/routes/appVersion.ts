@@ -2,7 +2,11 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { spawn } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { launchDetachedPowerShell } from '../lib/detachedLauncher.js';
+
+const palboxServiceName = () => process.env.PALBOX_SERVICE ?? 'PalboxManager';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
@@ -120,7 +124,7 @@ router.post('/update', requireAuth, async (_req, res) => {
 
     // ── Paths — kept short and space-free to avoid PowerShell quoting hell ─
     const installDir    = process.env.PALBOX_INSTALL_DIR ?? process.cwd();
-    const palboxService = process.env.PALBOX_SERVICE ?? 'PalboxManager';
+    const palboxService = palboxServiceName();
     const updateDir     = 'C:\\PalboxUpdate';
     const zipPath       = path.join(updateDir, asset.name);
     const extractDir    = path.join(updateDir, 'extracted');
@@ -130,6 +134,7 @@ router.post('/update', requireAuth, async (_req, res) => {
     // PowerShell process to silently fail because the CWD may differ at runtime.
     const logFile       = path.join(updateDir, 'update.log');
     const transcriptFile = path.join(updateDir, 'transcript.log');
+    const markerFile    = path.join(updateDir, 'started.marker');
 
     fs.mkdirSync(updateDir, { recursive: true });
 
@@ -172,6 +177,14 @@ $zipPath      = '${esc(zipPath)}'
 $extractDir   = '${esc(extractDir)}'
 $installDir   = '${esc(installDir)}'
 $svcName      = '${esc(palboxService)}'
+$markerFile   = '${esc(markerFile)}'
+
+# Written before anything else can fail. The launcher waits for this to
+# confirm the script really started, rather than trusting a process id.
+try {
+  [System.IO.File]::WriteAllText($markerFile,
+    [System.DateTime]::UtcNow.ToString('o'), [System.Text.Encoding]::UTF8)
+} catch {}
 
 # Start-Transcript captures EVERYTHING -- failsafe if Log() ever misfires
 try { Start-Transcript -Path $transcriptF -Append -Force | Out-Null } catch {}
@@ -336,6 +349,10 @@ try { Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue } ca
 if ($startedOk) { Log '=== apply-update.ps1 complete ===' }
 else            { Log '=== apply-update.ps1 finished WITH ERRORS ===' }
 
+# Remove the scheduled task used to launch this, so it cannot fire a second
+# time. Harmless when the updater was started some other way.
+try { schtasks /Delete /TN 'PalboxUpdate' /F 2>&1 | Out-Null } catch {}
+
 # Leave copies where the panel can surface them
 try { Copy-Item $logFile (Join-Path $installDir 'palbox-update.log') -Force -ErrorAction SilentlyContinue } catch {}
 try { Stop-Transcript | Out-Null } catch {}
@@ -345,58 +362,48 @@ try { Copy-Item $transcriptF (Join-Path $installDir 'palbox-transcript.log') -Fo
     // Write with UTF-8 BOM (\uFEFF) so PowerShell 5.1 detects the encoding
     // correctly on any system locale, avoiding garbled multi-byte characters.
     fs.writeFileSync(psScript, '\uFEFF' + ps, 'utf8');
-    // ── Spawn PowerShell detached ──────────────────────────────────────────
-    // detached: true + unref() = the child process gets its own process group
-    // and survives the Node.js/NSSM service being stopped.
-    //
-    // An absolute path is used because a service started by NSSM does not
-    // reliably inherit a PATH containing System32\WindowsPowerShell, and a
-    // bare "powershell.exe" that cannot be resolved fails silently.
-    const systemRoot = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows';
-    const psExe = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    const psExeResolved = fs.existsSync(psExe) ? psExe : 'powershell.exe';
-
-    fs.appendFileSync(logFile, `${new Date().toISOString()}  Script written to ${psScript} -- launching ${psExeResolved}\r\n`);
-
-    // The child's own output goes to a file rather than being discarded. If
-    // PowerShell dies before the script's logging starts - a blocked execution
-    // policy, a parse error - this is the only place that failure is visible,
-    // and discarding it is what made this look like nothing happened at all.
+    // ── Launch the updater independently of this process ───────────────────
     const bootstrapLog = path.join(updateDir, 'bootstrap.log');
-    let stdio: 'ignore' | ['ignore', number, number] = 'ignore';
-    try {
-      const fd = fs.openSync(bootstrapLog, 'a');
-      stdio = ['ignore', fd, fd];
-    } catch { /* fall back to discarding output */ }
-
-    const child = spawn(
-      psExeResolved,
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psScript],
-      { detached: true, stdio, windowsHide: true },
-    );
-
     const note = (msg: string) => {
       try { fs.appendFileSync(logFile, `${new Date().toISOString()}  ${msg}\r\n`); } catch { /* best effort */ }
     };
 
-    child.on('error', (err) => {
-      note(`FAILED to launch PowerShell: ${(err as Error).message}. The update has not been applied.`);
-    });
-    // A script that runs correctly stops this process before it can exit, so a
-    // fast exit means it failed and the reason is worth recording.
-    child.on('exit', (code) => {
-      if (code !== 0) note(`PowerShell exited early with code ${code}. See ${bootstrapLog}.`);
+    note(`Script written to ${psScript} -- launching updater`);
+
+    const launch = await launchDetachedPowerShell(psScript, {
+      taskName: 'PalboxUpdate',
+      marker: markerFile,
+      outputLog: bootstrapLog,
     });
 
-    if (child.pid) note(`PowerShell started (pid ${child.pid}).`);
-    child.unref();
+    for (const a of launch.attempts) {
+      note(`  ${a.strategy}: ${a.ok ? 'OK' : 'failed'} -- ${a.detail}`);
+    }
+
+    const manualCommand = `powershell -NoProfile -ExecutionPolicy Bypass -File "${psScript}"`;
+
+    if (!launch.ok) {
+      note('FAILED to launch the updater by any method. The update has NOT been applied.');
+      note(`Run this from an elevated PowerShell to finish: ${manualCommand}`);
+      res.status(500).json({
+        error: 'The update was downloaded but could not be launched. '
+          + launch.attempts.map((a) => `${a.strategy}: ${a.detail}`).join('; '),
+        manualCommand,
+        logFile,
+      });
+      return;
+    }
+
+    note(`Updater launched via ${launch.strategy}.`);
 
     res.json({
       ok: true,
       version: info.latest,
       logFile,
       transcriptFile,
-      message: `Updating to v${info.latest}. The panel will restart in ~20 seconds. Progress: ${logFile} | Transcript: ${transcriptFile}`,
+      strategy: launch.strategy,
+      manualCommand,
+      message: `Updating to v${info.latest} via ${launch.strategy}. The panel will restart in ~20 seconds.`,
     });
   } catch (e) {
     const msg = (e as Error).message;
@@ -408,6 +415,87 @@ try { Copy-Item $transcriptF (Join-Path $installDir 'palbox-transcript.log') -Fo
       );
     } catch {}
     res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * Runs a throwaway script through the same launch path the updater uses and
+ * reports what actually happened.
+ *
+ * The updater's failure mode is that it stops this process partway through, so
+ * a launch that never happened and one that worked perfectly look identical
+ * from here. This proves which it was, and reports whether the script ran with
+ * the Administrator rights that service control needs, before committing to a
+ * real update.
+ */
+router.post('/update-selftest', requireAuth, async (_req, res) => {
+  if (os.platform() !== 'win32') {
+    res.status(400).json({ error: 'Only meaningful on Windows server deployments.' });
+    return;
+  }
+
+  const dir = 'C:\\PalboxUpdate';
+  const marker = path.join(dir, 'selftest-result.json');
+  const script = path.join(dir, 'selftest.ps1');
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    try { fs.unlinkSync(marker); } catch { /* no previous run */ }
+
+    const psSelfTest = `$ErrorActionPreference = 'Continue'
+$isAdmin = $false
+try {
+  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $isAdmin = (New-Object Security.Principal.WindowsPrincipal $id).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+} catch {}
+$canControlService = $false
+try {
+  $svc = Get-Service -Name '${palboxServiceName().replace(/'/g, "''")}' -ErrorAction Stop
+  $canControlService = $true
+} catch {}
+$o = New-Object psobject -Property @{
+  ranAt    = [System.DateTime]::UtcNow.ToString('o')
+  user     = [Environment]::UserName
+  isAdmin  = $isAdmin
+  psVersion = $PSVersionTable.PSVersion.ToString()
+  serviceVisible = $canControlService
+}
+$json = $o | ConvertTo-Json -Compress
+[System.IO.File]::WriteAllText('${marker.replace(/\\/g, '\\\\')}', $json, [System.Text.Encoding]::UTF8)
+`;
+    fs.writeFileSync(script, '\uFEFF' + psSelfTest, 'utf8');
+
+    const launch = await launchDetachedPowerShell(script, {
+      taskName: 'PalboxUpdateSelfTest',
+      marker,
+      outputLog: path.join(dir, 'selftest-output.log'),
+    });
+
+    let result: Record<string, unknown> | null = null;
+    try {
+      // .NET writes a BOM, which JSON.parse rejects.
+      const raw = fs.readFileSync(marker, 'utf8').replace(/^\uFEFF/, '');
+      result = JSON.parse(raw) as Record<string, unknown>;
+    } catch { /* the launcher already reported whether it ran */ }
+
+    // Leave no task behind, whichever strategy won.
+    try {
+      await promisify(execFile)('schtasks', ['/Delete', '/TN', 'PalboxUpdateSelfTest', '/F'], {
+        timeout: 10_000, windowsHide: true,
+      });
+    } catch { /* was not created */ }
+
+    res.json({
+      launched: launch.ok,
+      strategy: launch.strategy,
+      attempts: launch.attempts,
+      ran: result !== null,
+      result,
+      manualCommand: `powershell -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, 'apply-update.ps1')}"`,
+    });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
   }
 });
 
