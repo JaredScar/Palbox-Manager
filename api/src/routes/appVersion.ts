@@ -214,18 +214,61 @@ if (-not $nssmExe) {
 }
 
 if ($nssmExe) { Log "nssm       : $nssmExe" }
-else          { Log 'WARNING: nssm not found -- service restart will be skipped' }
+else          { Log 'nssm not found -- using the service manager directly' }
+
+# --- Service control --------------------------------------------------------
+# These talk to the Windows service manager instead of shelling out to nssm.
+# "nssm start | Out-Null" builds a pipeline, and PowerShell will not move on
+# until that pipeline closes, which is how a start could wedge the script
+# forever. WaitForStatus is bounded by a timeout and cannot do that.
+function Get-SvcOrNull {
+  param($n)
+  try { return Get-Service -Name $n -ErrorAction Stop } catch { return $null }
+}
+
+function Stop-Palbox {
+  $svc = Get-SvcOrNull $svcName
+  if (-not $svc)                  { Log "Service '$svcName' is not registered -- nothing to stop."; return }
+  if ($svc.Status -eq 'Stopped')  { Log 'Service already stopped.'; return }
+  Log "Stopping service '$svcName' (currently $($svc.Status))..."
+  try { Stop-Service -Name $svcName -Force -ErrorAction Stop } catch { Log "  Stop-Service: $_" }
+  try {
+    $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(60))
+    Log 'Service stopped.'
+  } catch {
+    Log 'WARNING: service never reported Stopped within 60s -- continuing anyway.'
+  }
+}
+
+function Start-Palbox {
+  Log "Starting service '$svcName'..."
+  try {
+    Start-Service -Name $svcName -ErrorAction Stop
+    $svc = Get-SvcOrNull $svcName
+    if ($svc) { $svc.WaitForStatus('Running', [TimeSpan]::FromSeconds(90)) }
+    Log 'Service is running.'
+    return $true
+  } catch {
+    Log "  Start-Service failed: $_"
+  }
+  if ($nssmExe) {
+    Log '  Retrying via nssm...'
+    try {
+      $p = Start-Process -FilePath $nssmExe -ArgumentList @('start', $svcName) -NoNewWindow -PassThru
+      if (-not $p.WaitForExit(60000)) { try { $p.Kill() } catch {}; Log '  nssm start timed out after 60s.' }
+    } catch { Log "  nssm start error: $_" }
+    Start-Sleep -Seconds 3
+    $svc = Get-SvcOrNull $svcName
+    if ($svc -and $svc.Status -eq 'Running') { Log 'Service is running.'; return $true }
+  }
+  Log "ERROR: '$svcName' did not start. Start it by hand with:  Start-Service $svcName"
+  return $false
+}
 
 Log 'Waiting 10 seconds for Node.js API to finish responding...'
 Start-Sleep -Seconds 10
 
-# Stop service
-if ($nssmExe) {
-  Log "Stopping service '$svcName'..."
-  & $nssmExe stop $svcName confirm 2>&1 | Out-Null
-  Start-Sleep -Seconds 5
-  Log 'Service stopped.'
-}
+Stop-Palbox
 
 # Extract ZIP
 Log "Extracting $zipPath ..."
@@ -235,7 +278,7 @@ try {
   Log 'Extraction complete.'
 } catch {
   Log "ERROR extracting: $_"
-  if ($nssmExe) { & $nssmExe start $svcName 2>&1 | Out-Null }
+  $null = Start-Palbox
   try { Stop-Transcript | Out-Null } catch {}
   exit 1
 }
@@ -264,28 +307,23 @@ foreach ($folder in @('api-dist','node_modules','ui-dist')) {
 }
 Log 'Copy complete.'
 
-# Copy final logs to installDir so they are findable after cleanup
-try {
-  Copy-Item $logFile     (Join-Path $installDir 'palbox-update.log')     -Force -ErrorAction SilentlyContinue
-  Copy-Item $transcriptF (Join-Path $installDir 'palbox-transcript.log') -Force -ErrorAction SilentlyContinue
-} catch {}
+# Bring the service back BEFORE any cleanup. Wiping the staging directory here
+# also deletes the log this script is still appending to, after which every
+# remaining Log call fails silently and the run looks like it stopped dead.
+$startedOk = Start-Palbox
 
-# Clean up staging area (non-critical, ignore errors)
-try { Remove-Item 'C:\\PalboxUpdate' -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+# Remove the payload only. The script, its log, and the transcript stay until
+# the very end so a failed run is still diagnosable.
+try { Remove-Item $zipPath    -Force          -ErrorAction SilentlyContinue } catch {}
+try { Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 
-# Restart service
-if ($nssmExe) {
-  Log "Starting service '$svcName'..."
-  & $nssmExe start $svcName 2>&1 | Out-Null
-  Start-Sleep -Seconds 3
-  $st = (& $nssmExe status $svcName 2>&1) -join ''
-  Log "Service status: $st"
-} else {
-  Log "WARNING: nssm not found -- start '$svcName' manually."
-}
+if ($startedOk) { Log '=== apply-update.ps1 complete ===' }
+else            { Log '=== apply-update.ps1 finished WITH ERRORS ===' }
 
-Log '=== apply-update.ps1 complete ==='
+# Leave copies where the panel can surface them
+try { Copy-Item $logFile (Join-Path $installDir 'palbox-update.log') -Force -ErrorAction SilentlyContinue } catch {}
 try { Stop-Transcript | Out-Null } catch {}
+try { Copy-Item $transcriptF (Join-Path $installDir 'palbox-transcript.log') -Force -ErrorAction SilentlyContinue } catch {}
 `;
 
     // Write with UTF-8 BOM (\uFEFF) so PowerShell 5.1 detects the encoding

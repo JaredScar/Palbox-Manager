@@ -1,11 +1,12 @@
 {
   "name": "@palbox/api",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && npm run check:update-script",
+    "check:update-script": "node scripts/validate-update-script.mjs",
     "start": "node dist/index.js"
   },
   "dependencies": {
