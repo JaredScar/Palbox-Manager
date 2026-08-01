@@ -75,11 +75,14 @@ export function useUpdater(): UpdateState {
     }
   };
 
-  // Shared check function used by both auto-poll and manual button
+  // Shared check function used by both auto-poll and manual button.
+  // When manual=true, ?force=true bypasses the server-side 1-hour cache so
+  // the user always gets a live result from GitHub when they click the button.
   const runCheck = useCallback(async (manual = false) => {
     if (manual) { setChecking(true); dismissed.current = false; }
     try {
-      const res  = await fetch('/api/app-version', { credentials: 'include' });
+      const url = manual ? '/api/app-version?force=true' : '/api/app-version';
+      const res  = await fetch(url, { credentials: 'include' });
       if (!res.ok) return;
       const data = await res.json() as {
         updateAvailable: boolean; latest: string; releaseUrl: string;

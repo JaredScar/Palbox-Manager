@@ -52,9 +52,9 @@ function semverGt(a: string, b: string): boolean {
   return ap > bp;
 }
 
-async function fetchLatest(): Promise<Cache> {
+async function fetchLatest(force = false): Promise<Cache> {
   const now = Date.now();
-  if (cache && now - cache.checkedAt < CACHE_TTL_MS) return cache;
+  if (!force && cache && now - cache.checkedAt < CACHE_TTL_MS) return cache;
   const r = await fetch(RELEASES_API, { headers: { 'User-Agent': 'Palbox-Manager/1.0' } });
   if (!r.ok) throw new Error(`GitHub API ${r.status}`);
   const data = await r.json() as { tag_name: string; html_url: string; assets: ReleaseAsset[] };
@@ -68,9 +68,12 @@ async function fetchLatest(): Promise<Cache> {
 }
 
 // ── GET /api/app-version ──────────────────────────────────────────────────────
-router.get('/', requireAuth, async (_req, res) => {
+// Pass ?force=true to bypass the in-memory cache and hit GitHub directly.
+// Used by the manual "Check for updates" button.
+router.get('/', requireAuth, async (req, res) => {
+  const force = req.query.force === 'true';
   try {
-    const info = await fetchLatest().catch(() => null);
+    const info = await fetchLatest(force).catch(() => null);
     const latest = info?.latest ?? CURRENT_VERSION;
     res.json({
       current:         CURRENT_VERSION,
