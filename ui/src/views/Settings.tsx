@@ -8,6 +8,7 @@ import { cn } from '../lib/cn';
 import type { AlertRule, BroadcastSchedule, UserAccount, Instance, ConfigSnapshot, DiffLine } from '../api/client';
 import { authApi, instanceApi } from '../api/client';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
+import { UPDATE_POLL_OPTIONS, UPDATE_POLL_KEY } from '../hooks/useUpdater';
 
 /* ── Alert rules sub-section ──────────────────────────────────────────────── */
 function AlertRulesSection() {
@@ -454,6 +455,7 @@ export function Settings() {
       <BroadcastSection />
       <UserManagementSection />
       <AppUpdateSection />
+      <UpdatePollSection />
       <ConfigHistorySection />
       <WidgetSection />
       <ThemeSection />
@@ -976,6 +978,44 @@ function WidgetSection() {
             </button>
           </div>
         </div>
+      </div>
+    </PanelSection>
+  );
+}
+
+/* ── Update poll interval ─────────────────────────────────────────────────── */
+function UpdatePollSection() {
+  const DEFAULT = '5';
+  const [value, setValue] = useState(() => localStorage.getItem(UPDATE_POLL_KEY) ?? DEFAULT);
+
+  function handleChange(next: string) {
+    setValue(next);
+    localStorage.setItem(UPDATE_POLL_KEY, next);
+    // Notify same-tab listeners (storage event only fires cross-tab natively)
+    window.dispatchEvent(new StorageEvent('storage', { key: UPDATE_POLL_KEY, newValue: next }));
+  }
+
+  return (
+    <PanelSection
+      title="Panel update checks"
+      description="How often the panel polls GitHub to check whether a newer version is available. You can also trigger a manual check from the top bar."
+    >
+      <div className="flex items-center gap-4">
+        <label className="text-[11px] uppercase tracking-[0.09em] text-fog font-semibold shrink-0">
+          Check interval
+        </label>
+        <select
+          value={value}
+          onChange={(e) => handleChange(e.target.value)}
+          className="w-[160px]"
+        >
+          {UPDATE_POLL_OPTIONS.map((o) => (
+            <option key={o.value} value={String(o.value)}>{o.label}</option>
+          ))}
+        </select>
+        <span className="text-[12px] text-fog">
+          Currently checking every <strong className="text-bone">{UPDATE_POLL_OPTIONS.find((o) => String(o.value) === value)?.label ?? `${value} min`}</strong>
+        </span>
       </div>
     </PanelSection>
   );

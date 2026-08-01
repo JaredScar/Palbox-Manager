@@ -25,7 +25,23 @@ export interface UpdateState {
 
 const GITHUB_RELEASES = 'https://github.com/JaredScar/Palbox-Manager/releases/latest';
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+export const UPDATE_POLL_OPTIONS = [
+  { label: '1 minute',  value: 1  },
+  { label: '5 minutes', value: 5  },
+  { label: '15 minutes',value: 15 },
+  { label: '30 minutes',value: 30 },
+  { label: '1 hour',    value: 60 },
+  { label: '6 hours',   value: 360 },
+] as const;
+
+export const UPDATE_POLL_KEY = 'palbox_update_poll_minutes';
+const DEFAULT_POLL_MINUTES = 5;
+
+function getPollMs(): number {
+  const stored = parseInt(localStorage.getItem(UPDATE_POLL_KEY) ?? '', 10);
+  const minutes = Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_POLL_MINUTES;
+  return minutes * 60 * 1000;
+}
 
 export function useUpdater(): UpdateState {
   const [phase,      setPhase]      = useState<UpdatePhase>('idle');
@@ -108,12 +124,24 @@ export function useUpdater(): UpdateState {
       });
       return () => { offAvailable(); offProgress(); offDownloaded(); offError(); };
     } else {
-      // ── Browser / headless mode: poll every 5 minutes ─────────────────────
+      // ── Browser / headless mode: configurable poll interval ────────────────
       runCheck();
-      const id = setInterval(() => {
+
+      let id = setInterval(() => {
         if (!dismissed.current) runCheck();
-      }, POLL_INTERVAL_MS);
-      return () => clearInterval(id);
+      }, getPollMs());
+
+      // Re-create the interval whenever the user changes the setting
+      const onStorage = (e: StorageEvent) => {
+        if (e.key !== UPDATE_POLL_KEY) return;
+        clearInterval(id);
+        id = setInterval(() => {
+          if (!dismissed.current) runCheck();
+        }, getPollMs());
+      };
+      window.addEventListener('storage', onStorage);
+
+      return () => { clearInterval(id); window.removeEventListener('storage', onStorage); };
     }
   }, [runCheck]);
 
