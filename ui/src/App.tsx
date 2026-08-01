@@ -98,9 +98,9 @@ function AppShell() {
           <Sidebar instances={instances} active={active} setActiveId={setActiveId} isElectron={isElectron} />
         </div>
 
-        <div className="flex flex-col flex-1 min-w-0 overflow-hidden relative">
-          {/* Search + notification bell — desktop only (mobile is in top bar) */}
-          <div className="hidden lg:flex absolute top-4 right-5 z-40 items-center gap-2">
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          {/* Desktop top bar — search + notifications */}
+          <div className="hidden lg:flex items-center justify-end gap-2 px-5 py-2.5 border-b border-line bg-panel shrink-0">
             <button onClick={openSearch}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-panel-raised border border-line text-fog hover:text-bone hover:border-fog/40 transition-colors text-[12px]">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -111,6 +111,7 @@ function AppShell() {
             </button>
             <NotificationBell />
           </div>
+          <div className="flex-1 min-h-0 overflow-hidden relative">
           <Routes>
             <Route path="/"             element={<Dashboard />} />
             <Route path="/players"      element={<Players />} />
@@ -130,6 +131,7 @@ function AppShell() {
             <Route path="/users"        element={<UserManagement />} />
             <Route path="*"             element={<Navigate to="/" replace />} />
           </Routes>
+          </div>
         </div>
       </div>
     </div>
