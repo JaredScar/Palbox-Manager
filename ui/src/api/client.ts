@@ -37,6 +37,47 @@ export const instanceApi = {
 };
 
 // ── Per-instance API factory ──────────────────────────────────────────────────
+export interface GuildMember {
+  playerId: string;
+  name: string;
+  lastOnline: number | null;
+}
+
+export interface Guild {
+  groupId: string;
+  name: string;
+  baseCampLevel: number;
+  adminPlayerId: string | null;
+  memberCount: number;
+  members: GuildMember[];
+  updatedAt: number;
+}
+
+export interface BaseCamp {
+  baseId: string;
+  guildId: string | null;
+  /** Unreal world coordinates, the same space player positions use. */
+  x: number; y: number; z: number;
+  areaRange: number;
+  state: number;
+}
+
+export interface WorldScanStatus {
+  file: string | null;
+  scannedAt: number | null;
+  savedAt: number | null;
+  guilds: number;
+  bases: number;
+  error: string | null;
+  scanning: boolean;
+}
+
+export interface WorldSaveData {
+  guilds: Guild[];
+  bases: BaseCamp[];
+  scan: WorldScanStatus | null;
+}
+
 export function makeApi(instanceId: number) {
   const p = (path: string) => `/instances/${instanceId}${path}`;
 
@@ -205,6 +246,10 @@ export function makeApi(instanceId: number) {
     // Palworld REST API info
     palrestInfo: () => request<PalRestInfo>(p('/palrest/info')),
     palrestPlayers: () => request<PalRestPlayer[]>(p('/palrest/players')),
+
+    // Guilds and base camps, read out of Level.sav rather than any live API
+    worldSave: () => request<WorldSaveData>(p('/world-save')),
+    scanWorldSave: () => request<WorldScanStatus>(p('/world-save/scan'), { method: 'POST' }),
 
     // Connection diagnostics — probes can legitimately take a few seconds each,
     // so this gets a longer budget than the default request timeout.

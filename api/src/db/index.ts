@@ -155,6 +155,34 @@ function applySchema(db: Database.Database): void {
       created_at  INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
+    -- ── Guilds and base camps (read out of Level.sav) ────────────────────────
+    -- Mirrors of what the save file says, refreshed wholesale on each scan, so
+    -- rows here are a cache and never a source of truth.
+    CREATE TABLE IF NOT EXISTS guilds (
+      instance_id     INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+      group_id        TEXT NOT NULL,
+      name            TEXT NOT NULL DEFAULT '',
+      base_camp_level INTEGER NOT NULL DEFAULT 0,
+      admin_player_id TEXT,
+      members         TEXT NOT NULL DEFAULT '[]',
+      member_count    INTEGER NOT NULL DEFAULT 0,
+      updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (instance_id, group_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS base_camps (
+      instance_id INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+      base_id     TEXT NOT NULL,
+      guild_id    TEXT,
+      x           REAL NOT NULL,
+      y           REAL NOT NULL,
+      z           REAL NOT NULL,
+      area_range  REAL NOT NULL DEFAULT 0,
+      state       INTEGER NOT NULL DEFAULT 0,
+      updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (instance_id, base_id)
+    );
+
     -- ── Alert rules ──────────────────────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS alert_rules (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

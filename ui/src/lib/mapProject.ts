@@ -39,6 +39,14 @@ const TRANSFORM_D = 4960.62;
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 /**
+ * A distance in world units -> a fraction of the map's width, for drawing
+ * things that have a real size such as a base camp's build radius.
+ */
+export function worldLengthToUv(length: number): number {
+  return length / ((GAME_MAX_X - GAME_MIN_X) * SCALE);
+}
+
+/**
  * World position -> the coordinate pair the game shows players on its own map,
  * so a reading here can be compared against one read in game.
  */

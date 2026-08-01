@@ -6,6 +6,7 @@ import { startBackupScheduler } from '../services/backup';
 import { startUpdatePoller } from '../services/steamcmd';
 import { startWatchdog } from '../services/watchdog';
 import { syncScheduler } from '../services/scheduler';
+import { startWorldSaveScanner } from '../services/worldSave';
 import { forgetInstanceHosts } from '../services/connection';
 
 const router = Router();
@@ -52,6 +53,7 @@ router.post('/', requirePermission('settings.manage'), (req, res) => {
   startUpdatePoller(inst);
   startWatchdog(inst);
   syncScheduler(inst);
+  startWorldSaveScanner(inst);
 
   res.status(201).json(inst);
 });

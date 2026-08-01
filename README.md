@@ -178,6 +178,8 @@ nssm start PalboxAPI
 | **Player Profiles** | Notes, tags, playtime history per player |
 | **Audit Log** | All admin actions recorded |
 | **World Overview** | Key settings parsed from `PalWorldSettings.ini` |
+| **World Map** | Live player positions on the in-game map, projected with the community-calibrated transform |
+| **Guilds & base camps** | Read straight out of `Level.sav`, including offline members and claimed territory |
 | **Multi-user accounts** | Owner / Operator / Viewer roles with JWT auth |
 | **Two-factor auth** | TOTP (Google Authenticator / Authy) via QR code |
 | **Maintenance mode** | RCON broadcast warnings + whitelist lockdown |

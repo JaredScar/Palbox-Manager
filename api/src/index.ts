@@ -13,6 +13,7 @@ import { initWss, startLogTail } from './ws.js';
 import { startBackupScheduler } from './services/backup.js';
 import { startUpdatePoller } from './services/steamcmd.js';
 import { startWatchdog } from './services/watchdog.js';
+import { startWorldSaveScanner } from './services/worldSave.js';
 import { syncScheduler } from './services/scheduler.js';
 import { syncBroadcaster } from './services/broadcaster.js';
 
@@ -39,6 +40,7 @@ import triggersRoutes from './routes/triggers.js';
 import notificationsRoutes from './routes/notificationsRoute.js';
 import configHistoryRoutes from './routes/configHistory.js';
 import savebrowserRoutes from './routes/savebrowser.js';
+import worldSaveRoutes from './routes/worldSave.js';
 import searchRoutes from './routes/search.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import worldMapAssetRoutes from './routes/worldMapAsset.js';
@@ -83,6 +85,7 @@ app.use('/api/instances/:instanceId/triggers', triggersRoutes);
 app.use('/api/instances/:instanceId/notifications', notificationsRoutes);
 app.use('/api/instances/:instanceId/server/config-history', configHistoryRoutes);
 app.use('/api/instances/:instanceId/savebrowser', savebrowserRoutes);
+app.use('/api/instances/:instanceId/world-save', worldSaveRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/instances/:instanceId/server/diagnostics', diagnosticsRoutes);
 app.use('/api/world-map-image', worldMapAssetRoutes);
@@ -132,6 +135,7 @@ function bootInstances(): void {
     syncScheduler(inst);
     syncBroadcaster(inst);
     startLogTail(inst);
+    startWorldSaveScanner(inst);
     log.info(`[${inst.name}] Services started`);
   }
 }
