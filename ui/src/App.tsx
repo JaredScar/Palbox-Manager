@@ -78,6 +78,15 @@ function AppShell() {
               <circle cx="11" cy="11" r="8" /><path strokeLinecap="round" d="m21 21-4.35-4.35" />
             </svg>
           </button>
+          {!isElectron && (
+            <button onClick={updater.checkNow} disabled={updater.checking}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-panel-raised transition-colors text-fog hover:text-bone disabled:opacity-40"
+              title="Check for updates">
+              <svg className={`w-4 h-4 ${updater.checking ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+              </svg>
+            </button>
+          )}
           <NotificationBell />
         </div>
       </div>
@@ -99,7 +108,7 @@ function AppShell() {
         </div>
 
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-          {/* Desktop top bar — search + notifications */}
+          {/* Desktop top bar — search + check updates + notifications */}
           <div className="hidden lg:flex items-center justify-end gap-2 px-5 py-2.5 border-b border-line bg-panel shrink-0">
             <button onClick={openSearch}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-panel-raised border border-line text-fog hover:text-bone hover:border-fog/40 transition-colors text-[12px]">
@@ -109,6 +118,24 @@ function AppShell() {
               Search
               <kbd className="ml-1 font-mono text-[10px] opacity-60">Ctrl+K</kbd>
             </button>
+            {/* Check for updates button — browser/server mode only (Electron handles it automatically) */}
+            {!isElectron && (
+              <button
+                onClick={updater.checkNow}
+                disabled={updater.checking}
+                title="Check for panel updates"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-panel-raised border border-line text-fog hover:text-bone hover:border-fog/40 transition-colors text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg
+                  className={`w-3.5 h-3.5 ${updater.checking ? 'animate-spin' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                </svg>
+                {updater.checking ? 'Checking…' : 'Check updates'}
+              </button>
+            )}
             <NotificationBell />
           </div>
           <div className="flex-1 min-h-0 overflow-hidden relative">

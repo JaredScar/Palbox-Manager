@@ -9,7 +9,20 @@ interface Props {
 export function UpdateBanner({ updater, isElectron, isServerMode }: Props) {
   const { phase, version, percent, releaseUrl, error, dismiss, install, applyServerUpdate } = updater;
 
-  if (phase === 'idle') return null;
+  if (phase === 'idle' || phase === 'checking') return null;
+
+  // ── Up to date ────────────────────────────────────────────────────────────
+  if (phase === 'up_to_date') {
+    return (
+      <div className="relative flex items-center gap-3 px-4 py-2 text-[12.5px] font-medium shrink-0 border-b border-line/60 bg-[#7ce666]/10 text-[#7ce666]">
+        <CheckCircleIcon />
+        <span>Palbox is up to date.</span>
+        <button onClick={dismiss} className="ml-auto text-[#7ce666]/50 hover:text-[#7ce666] transition-colors">
+          <XIcon />
+        </button>
+      </div>
+    );
+  }
 
   const base =
     'relative flex items-center gap-3 px-4 py-2.5 text-[12.5px] font-medium shrink-0 ' +
