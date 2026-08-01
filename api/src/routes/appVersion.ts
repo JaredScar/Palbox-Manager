@@ -125,11 +125,15 @@ router.post('/update', requireAuth, async (_req, res) => {
     const zipPath       = path.join(updateDir, asset.name);
     const extractDir    = path.join(updateDir, 'extracted');
     const psScript      = path.join(updateDir, 'apply-update.ps1');
-    const logFile       = path.join(installDir, 'palbox-update.log');
+    // Log lives in the SAME directory as the PS script — this is guaranteed
+    // writable (we just created it above). Using installDir caused the detached
+    // PowerShell process to silently fail because the CWD may differ at runtime.
+    const logFile       = path.join(updateDir, 'update.log');
+    const transcriptFile = path.join(updateDir, 'transcript.log');
 
     fs.mkdirSync(updateDir, { recursive: true });
 
-    // ── Write the first log line from Node so there is always a trail ──────
+    // ── Write the first log lines from Node so there is always a trail ──────
     const firstLine = `${new Date().toISOString()}  Palbox update to v${info.latest} initiated by API — downloading ${asset.name}\r\n`;
     fs.writeFileSync(logFile, firstLine, 'utf8');
 
@@ -162,26 +166,35 @@ router.post('/update', requireAuth, async (_req, res) => {
 
     const ps = `# Palbox self-update — ${new Date().toISOString()}
 $ErrorActionPreference = 'Continue'
-$logFile   = '${esc(logFile)}'
-$zipPath   = '${esc(zipPath)}'
-$extractDir= '${esc(extractDir)}'
-$installDir= '${esc(installDir)}'
-$svcName   = '${esc(palboxService)}'
+$logFile      = '${esc(logFile)}'
+$transcriptF  = '${esc(transcriptFile)}'
+$zipPath      = '${esc(zipPath)}'
+$extractDir   = '${esc(extractDir)}'
+$installDir   = '${esc(installDir)}'
+$svcName      = '${esc(palboxService)}'
 
-# Use direct .NET file I/O — reliable in detached/no-host sessions
-# (Tee-Object depends on the PS host being present which it is not here)
+# Start-Transcript captures EVERYTHING — failsafe if Log() ever misfires
+try { Start-Transcript -Path $transcriptF -Append -Force | Out-Null } catch {}
+
+# Log() uses .NET file I/O directly — no PS host/output-stream dependency
 function Log {
   param($m)
-  $ts = [System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $ts   = [System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
   $line = "$ts  $m\`r\`n"
   try {
     [System.IO.File]::AppendAllText($logFile, $line, [System.Text.Encoding]::UTF8)
-  } catch {}
+  } catch {
+    # If the primary log write fails, at least transcript has it
+  }
+  Write-Host $m  # also captured by transcript
 }
 
 Log '=== apply-update.ps1 started ==='
+Log "installDir : $installDir"
+Log "svcName    : $svcName"
+Log "zipPath    : $zipPath"
 
-# Locate nssm.exe — check fixed paths first to avoid slow Get-Command searches
+# Locate nssm.exe — fixed paths first to avoid slow PATH scan
 $nssmExe = $null
 $candidates = @(
   'C:\\nssm\\nssm.exe',
@@ -191,67 +204,74 @@ $candidates = @(
   'C:\\ProgramData\\chocolatey\\bin\\nssm.exe'
 )
 foreach ($loc in $candidates) {
-  if (Test-Path $loc -ErrorAction SilentlyContinue) { $nssmExe = $loc; break }
+  if (Test-Path $loc -PathType Leaf -ErrorAction SilentlyContinue) { $nssmExe = $loc; break }
 }
-# Fall back to PATH lookup only if fixed paths failed
 if (-not $nssmExe) {
   try {
-    $found = (Get-Command 'nssm.exe' -ErrorAction SilentlyContinue)
+    $found = Get-Command 'nssm.exe' -ErrorAction SilentlyContinue
     if ($found) { $nssmExe = $found.Source }
   } catch {}
 }
 
-if ($nssmExe) { Log "nssm: $nssmExe" }
+if ($nssmExe) { Log "nssm       : $nssmExe" }
 else          { Log 'WARNING: nssm not found — service restart will be skipped' }
 
-Log 'Waiting 8 seconds for API to finish responding...'
-Start-Sleep -Seconds 8
+Log 'Waiting 10 seconds for Node.js API to finish responding...'
+Start-Sleep -Seconds 10
 
 # Stop service
 if ($nssmExe) {
   Log "Stopping service '$svcName'..."
   & $nssmExe stop $svcName confirm 2>&1 | Out-Null
-  Start-Sleep -Seconds 4
+  Start-Sleep -Seconds 5
   Log 'Service stopped.'
 }
 
-# Extract ZIP — handle a possible single root folder inside the ZIP
+# Extract ZIP
 Log "Extracting $zipPath ..."
 try {
-  Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+  if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
   Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
   Log 'Extraction complete.'
 } catch {
   Log "ERROR extracting: $_"
   if ($nssmExe) { & $nssmExe start $svcName 2>&1 | Out-Null }
+  try { Stop-Transcript | Out-Null } catch {}
   exit 1
 }
 
-# If the ZIP has a single root folder, descend into it
+# Descend into single root folder if present (e.g. palbox-server-0.7.0/)
 $children = @(Get-ChildItem $extractDir)
 $src = $extractDir
 if ($children.Count -eq 1 -and $children[0].PSIsContainer) {
   $src = $children[0].FullName
-  Log "ZIP root folder detected: $src"
+  Log "ZIP root folder: $src"
 }
 
-# Copy new files
-Log "Copying to $installDir ..."
+# Copy new files into installDir
+Log "Copying files to $installDir ..."
 foreach ($folder in @('api-dist','node_modules','ui-dist')) {
   $s = Join-Path $src $folder
   $d = Join-Path $installDir $folder
   if (Test-Path $s) {
-    Log "  Copying $folder ..."
-    Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
+    Log "  Replacing $folder ..."
+    if (Test-Path $d) { Remove-Item $d -Recurse -Force }
     Copy-Item $s $d -Recurse -Force
-    Log "  $folder done."
+    Log "  $folder OK"
   } else {
     Log "  SKIP $folder (not in archive)"
   }
 }
+Log 'Copy complete.'
 
-# Clean up ZIP/extract staging area
-Remove-Item 'C:\\PalboxUpdate' -Recurse -Force -ErrorAction SilentlyContinue
+# Copy final logs to installDir so they are findable after cleanup
+try {
+  Copy-Item $logFile     (Join-Path $installDir 'palbox-update.log')     -Force -ErrorAction SilentlyContinue
+  Copy-Item $transcriptF (Join-Path $installDir 'palbox-transcript.log') -Force -ErrorAction SilentlyContinue
+} catch {}
+
+# Clean up staging area (non-critical, ignore errors)
+try { Remove-Item 'C:\\PalboxUpdate' -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 
 # Restart service
 if ($nssmExe) {
@@ -261,10 +281,11 @@ if ($nssmExe) {
   $st = (& $nssmExe status $svcName 2>&1) -join ''
   Log "Service status: $st"
 } else {
-  Log "WARNING: nssm not found — start '$svcName' manually."
+  Log "WARNING: start '$svcName' manually — nssm not found."
 }
 
 Log '=== apply-update.ps1 complete ==='
+try { Stop-Transcript | Out-Null } catch {}
 `;
 
     fs.writeFileSync(psScript, ps, 'utf8');
@@ -288,7 +309,8 @@ Log '=== apply-update.ps1 complete ==='
       ok: true,
       version: info.latest,
       logFile,
-      message: `Updating to v${info.latest}. The panel will restart in ~15 seconds. Progress is logged to: ${logFile}`,
+      transcriptFile,
+      message: `Updating to v${info.latest}. The panel will restart in ~20 seconds. Progress log: ${logFile} — full transcript: ${transcriptFile}`,
     });
   } catch (e) {
     const msg = (e as Error).message;
