@@ -142,14 +142,47 @@ const TABS: { id: Tab; label: string; accent: string }[] = [
 const inputCls = 'w-full focus:outline-none focus:border-aqua focus:ring-0';
 const labelCls = 'text-[11px] uppercase tracking-[0.09em] text-fog font-semibold mb-1.5 block';
 
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  ) : (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+    </svg>
+  );
+}
+
 function Field({ label, name, settings, set, hint, type = 'text' }: {
   label: string; name: string; settings: Record<string, string>;
   set: (k: string, v: string) => void; hint?: string; type?: string;
 }) {
+  const [show, setShow] = useState(false);
+  const isPassword = type === 'password';
   return (
     <div className="flex flex-col gap-1.5">
       <label className={labelCls}>{label}</label>
-      <input type={type} value={settings[name] ?? ''} onChange={(e) => set(name, e.target.value)} className={inputCls} />
+      <div className="relative">
+        <input
+          type={isPassword && !show ? 'password' : 'text'}
+          value={settings[name] ?? ''}
+          onChange={(e) => set(name, e.target.value)}
+          className={`${inputCls} ${isPassword ? 'pr-9' : ''}`}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setShow((s) => !s)}
+            className="absolute inset-y-0 right-0 px-2.5 flex items-center text-fog hover:text-bone transition-colors"
+            aria-label={show ? 'Hide' : 'Show'}
+          >
+            <EyeIcon open={show} />
+          </button>
+        )}
+      </div>
       {hint && <span className="text-[11px] text-fog mt-0.5">{hint}</span>}
     </div>
   );
@@ -615,15 +648,31 @@ function InstanceField({ label, field, form, set, type = 'text', placeholder }: 
   set: (f: keyof Instance, v: string | number) => void;
   type?: string; placeholder?: string;
 }) {
+  const [show, setShow] = useState(false);
+  const isPassword = type === 'password';
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-[10.5px] uppercase tracking-[0.09em] text-fog font-semibold">{label}</label>
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={(form[field] as string | number) ?? ''}
-        onChange={(e) => set(field, type === 'number' ? Number(e.target.value) : e.target.value)}
-      />
+      <div className="relative">
+        <input
+          type={isPassword && !show ? 'password' : 'text'}
+          placeholder={placeholder}
+          value={(form[field] as string | number) ?? ''}
+          onChange={(e) => set(field, type === 'number' ? Number(e.target.value) : e.target.value)}
+          className={isPassword ? 'pr-9' : undefined}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setShow((s) => !s)}
+            className="absolute inset-y-0 right-0 px-2.5 flex items-center text-fog hover:text-bone transition-colors"
+            aria-label={show ? 'Hide' : 'Show'}
+          >
+            <EyeIcon open={show} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
