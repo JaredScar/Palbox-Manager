@@ -45,7 +45,8 @@ export class RconClient {
   private password: string;
   private socket: net.Socket | null = null;
   private buffer = Buffer.alloc(0);
-  private reqId = 1;
+  // Starts at 2 because the auth exchange reserves id 1.
+  private reqId = 2;
   private pendingMap = new Map<number, { resolve: (v: string) => void; reject: (e: Error) => void }>();
 
   constructor(host: string, port: number, password: string) {
@@ -102,14 +103,20 @@ export class RconClient {
         this.buffer = Buffer.concat([this.buffer, chunk]);
         const packets = decodePackets(this.buffer);
         for (const pkt of packets) {
+          // A failed auth comes back with id -1 rather than the request id, so
+          // looking it up in pendingMap never matches. Handle it up front,
+          // otherwise a bad password silently waits out the request timeout.
+          if (pkt.id === -1) {
+            for (const [, h] of this.pendingMap) {
+              h.reject(new Error('RCON authentication failed — wrong password'));
+            }
+            this.pendingMap.clear();
+            continue;
+          }
           const handler = this.pendingMap.get(pkt.id);
           if (handler) {
             this.pendingMap.delete(pkt.id);
-            if (pkt.type === SERVERDATA_AUTH_RESPONSE && pkt.id === -1) {
-              handler.reject(new Error('RCON authentication failed'));
-            } else {
-              handler.resolve(pkt.body);
-            }
+            handler.resolve(pkt.body);
           }
         }
         // Consume processed data

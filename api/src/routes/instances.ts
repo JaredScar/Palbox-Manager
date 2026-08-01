@@ -6,6 +6,7 @@ import { startBackupScheduler } from '../services/backup';
 import { startUpdatePoller } from '../services/steamcmd';
 import { startWatchdog } from '../services/watchdog';
 import { syncScheduler } from '../services/scheduler';
+import { forgetInstanceHosts } from '../services/connection';
 
 const router = Router();
 router.use(requireAuth);
@@ -72,6 +73,9 @@ router.patch('/:id', requirePermission('settings.manage'), (req, res) => {
 
   const set = fields.map((k) => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE instances SET ${set} WHERE id = @id`).run({ ...updates, id });
+  // Connection details may have changed, so the remembered RCON/REST host is
+  // no longer trustworthy.
+  forgetInstanceHosts(id);
   const updated = db.prepare('SELECT * FROM instances WHERE id = ?').get(id) as Instance;
   res.json(updated);
 });

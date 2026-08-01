@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getStatus, startServer, stopServer, restartServer, getCpuAndMemory } from '../services/palserver.js';
-import { rconExec } from '../lib/rcon.js';
+import { instRcon } from '../services/connection.js';
 import { getDb } from '../db/index.js';
 import { sendDiscord, fireEvent } from '../services/discord.js';
 import { isArmed, getLastIntervention, getMetrics24h } from '../services/watchdog.js';
@@ -49,8 +49,8 @@ router.get('/status', requirePermission('server.view'), async (req, res) => {
       // Hard-capped: /status is polled every 10s by the dashboard, so a slow or
       // unreachable RCON host must degrade to the log-based list, never stall.
       const raw = await withTimeout(
-        rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'ShowPlayers', 2500),
-        4000,
+        instRcon(inst, 'ShowPlayers', 2500),
+        9000,
         'RCON ShowPlayers',
       );
       // Response: first line is a header "name,playeruid,steamid" — skip it.
@@ -165,7 +165,7 @@ router.post('/restart', requirePermission('server.restart'), async (req, res) =>
 router.post('/save', requirePermission('server.save'), async (req, res) => {
   const inst = req.instance!;
   try {
-    await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'Save');
+    await instRcon(inst, 'Save');
     logAction(inst.id, 'server.save');
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -176,7 +176,7 @@ router.post('/rcon', requirePermission('console.rcon'), async (req, res) => {
   const { command } = req.body as { command?: string };
   if (!command) { res.status(400).json({ error: 'command required' }); return; }
   try {
-    const result = await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, command);
+    const result = await instRcon(inst, command);
     logAction(inst.id, 'rcon', command);
     res.json({ ok: true, result });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }

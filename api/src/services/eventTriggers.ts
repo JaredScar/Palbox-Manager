@@ -81,14 +81,14 @@ export async function evaluateTriggers(inst: Instance, ctx: Context): Promise<vo
           break;
         }
         case 'rcon_command': {
-          const { rconExec } = await import('../lib/rcon.js');
-          const result = await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, params.command ?? '');
+          const { instRcon } = await import('./connection.js');
+          const result = await instRcon(inst, params.command ?? '');
           pushNotification(inst.id, `RCON executed`, `${params.command} → ${result}`, 'info');
           break;
         }
         case 'broadcast_message': {
-          const { rconExec } = await import('../lib/rcon.js');
-          await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, `Broadcast ${params.message ?? ''}`);
+          const { instRcon } = await import('./connection.js');
+          await instRcon(inst, `Broadcast ${params.message ?? ''}`);
           pushNotification(inst.id, `Broadcast sent`, params.message ?? '', 'info');
           break;
         }

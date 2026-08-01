@@ -2,7 +2,7 @@ import { getDb } from '../db/index.js';
 import type { Instance, AlertRule } from '../db/types.js';
 import { log } from '../lib/logger.js';
 import { getStatus, startServer, getCpuAndMemory } from './palserver.js';
-import { rconExec } from '../lib/rcon.js';
+import { instRcon } from './connection.js';
 import { sendDiscord } from './discord.js';
 import { broadcast } from '../ws.js';
 import { evaluateTriggers } from './eventTriggers.js';
@@ -67,7 +67,7 @@ async function checkHealth(inst: Instance): Promise<void> {
   let players: { name: string; steamId: string }[] = [];
   let rconOk = false;
   try {
-    const raw = await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'ShowPlayers');
+    const raw = await instRcon(inst, 'ShowPlayers');
     players = parseShowPlayers(raw);
     rconOk = true;
     s.consecutiveFailures = 0;

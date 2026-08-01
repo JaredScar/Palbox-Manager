@@ -3,6 +3,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { RconClient } from '../lib/rcon.js';
 import { restGetInfo } from '../services/palrest.js';
+import { isLoopback, LOOPBACK, restPortOf } from '../services/connection.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -20,10 +21,6 @@ export interface DiagnosticsResponse {
   rest:    DiagResult & { serverName?: string; version?: string };
   summary: string;
 }
-
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '0.0.0.0']);
-const isLoopback = (h: string) => LOOPBACK_HOSTS.has(h.trim().toLowerCase());
-const LOOPBACK = '127.0.0.1';
 
 // Probe budget. Every probe runs concurrently, so the whole request is bounded
 // by the slowest single probe rather than the sum of all of them.
@@ -106,8 +103,7 @@ function explainRest(raw: string, host: string, port: number): string {
 
 router.post('/', requirePermission('server.view'), async (req, res) => {
   const inst = req.instance!;
-  const restPort =
-    ((inst as unknown as Record<string, unknown>).rest_api_port as number | undefined) ?? 8212;
+  const restPort = restPortOf(inst);
   const host = inst.rcon_host;
   const pass = inst.rcon_password;
 
@@ -137,7 +133,7 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
     if (!rconMain!.ok) {
       rcon.error = explainRcon(rconMain!.raw!, host, inst.rcon_port);
       if (rconLoop?.ok) {
-        rcon.hint = `RCON answered on ${LOOPBACK}:${inst.rcon_port} in ${rconLoop.latencyMs}ms. Palbox runs on the same machine as the server, so change the RCON host from "${host}" to ${LOOPBACK}.`;
+        rcon.hint = `RCON answered on ${LOOPBACK}:${inst.rcon_port} in ${rconLoop.latencyMs}ms, so Palbox will use that automatically. Set the RCON host to ${LOOPBACK} to skip the failed attempt on every call.`;
       }
     }
   }
@@ -155,7 +151,7 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
     rest.latencyMs = restMain!.latencyMs;
     rest.error = explainRest(restMain!.raw!, host, restPort);
     if (restLoop?.ok) {
-      rest.hint = `The REST API answered on ${LOOPBACK}:${restPort} in ${restLoop.latencyMs}ms (server: ${restLoop.serverName}). Change the RCON host from "${host}" to ${LOOPBACK}.`;
+      rest.hint = `The REST API answered on ${LOOPBACK}:${restPort} in ${restLoop.latencyMs}ms (server: ${restLoop.serverName}), so Palbox will use that automatically. Set the RCON host to ${LOOPBACK} to skip the failed attempt on every call.`;
     }
   }
 
@@ -165,7 +161,7 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
   if (rcon.ok && rest.ok) {
     summary = 'Both RCON and the REST API are connected and working.';
   } else if (loopbackWorks) {
-    summary = `Reachable on ${LOOPBACK} but not on "${host}". This machine cannot connect to its own public IP, which is normal. Set the RCON host to ${LOOPBACK} in this instance's settings.`;
+    summary = `Reachable on ${LOOPBACK} but not on "${host}" — this machine cannot connect to its own public IP, which is normal and does not affect players. Palbox falls back to ${LOOPBACK} automatically, so everything works; set the RCON host to ${LOOPBACK} to make it direct.`;
   } else if (rcon.ok) {
     summary = 'RCON is working but the REST API is not — player positions and world map data will be unavailable.';
   } else if (rest.ok) {
