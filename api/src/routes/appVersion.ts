@@ -165,31 +165,41 @@ $extractDir= '${esc(extractDir)}'
 $installDir= '${esc(installDir)}'
 $svcName   = '${esc(palboxService)}'
 
+# Use direct .NET file I/O — reliable in detached/no-host sessions
+# (Tee-Object depends on the PS host being present which it is not here)
 function Log {
   param($m)
-  $ts = [DateTime]::Now.ToString('HH:mm:ss')
-  "$ts  $m" | Tee-Object -FilePath $logFile -Append | Out-Null
+  $ts = [System.DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $line = "$ts  $m\`r\`n"
+  try {
+    [System.IO.File]::AppendAllText($logFile, $line, [System.Text.Encoding]::UTF8)
+  } catch {}
 }
 
 Log '=== apply-update.ps1 started ==='
 
-# Locate nssm.exe
+# Locate nssm.exe — check fixed paths first to avoid slow Get-Command searches
 $nssmExe = $null
 $candidates = @(
-  'nssm',
   'C:\\nssm\\nssm.exe',
   'C:\\Palbox\\nssm.exe',
   'C:\\tools\\nssm.exe',
-  (Join-Path $installDir 'nssm.exe')
+  (Join-Path $installDir 'nssm.exe'),
+  'C:\\ProgramData\\chocolatey\\bin\\nssm.exe'
 )
 foreach ($loc in $candidates) {
+  if (Test-Path $loc -ErrorAction SilentlyContinue) { $nssmExe = $loc; break }
+}
+# Fall back to PATH lookup only if fixed paths failed
+if (-not $nssmExe) {
   try {
-    $r = Get-Command $loc -ErrorAction SilentlyContinue
-    if ($r) { $nssmExe = $r.Source; break }
+    $found = (Get-Command 'nssm.exe' -ErrorAction SilentlyContinue)
+    if ($found) { $nssmExe = $found.Source }
   } catch {}
 }
+
 if ($nssmExe) { Log "nssm: $nssmExe" }
-else { Log 'WARNING: nssm not found — service restart will be skipped' }
+else          { Log 'WARNING: nssm not found — service restart will be skipped' }
 
 Log 'Waiting 8 seconds for API to finish responding...'
 Start-Sleep -Seconds 8
@@ -197,7 +207,7 @@ Start-Sleep -Seconds 8
 # Stop service
 if ($nssmExe) {
   Log "Stopping service '$svcName'..."
-  & $nssmExe stop $svcName 2>&1 | Out-Null
+  & $nssmExe stop $svcName confirm 2>&1 | Out-Null
   Start-Sleep -Seconds 4
   Log 'Service stopped.'
 }
@@ -228,7 +238,7 @@ foreach ($folder in @('api-dist','node_modules','ui-dist')) {
   $s = Join-Path $src $folder
   $d = Join-Path $installDir $folder
   if (Test-Path $s) {
-    Log "  $folder ..."
+    Log "  Copying $folder ..."
     Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item $s $d -Recurse -Force
     Log "  $folder done."
@@ -237,7 +247,7 @@ foreach ($folder in @('api-dist','node_modules','ui-dist')) {
   }
 }
 
-# Clean up
+# Clean up ZIP/extract staging area
 Remove-Item 'C:\\PalboxUpdate' -Recurse -Force -ErrorAction SilentlyContinue
 
 # Restart service
@@ -248,7 +258,7 @@ if ($nssmExe) {
   $st = (& $nssmExe status $svcName 2>&1) -join ''
   Log "Service status: $st"
 } else {
-  Log "WARNING: Start '$svcName' manually."
+  Log "WARNING: nssm not found — start '$svcName' manually."
 }
 
 Log '=== apply-update.ps1 complete ==='
@@ -262,7 +272,7 @@ Log '=== apply-update.ps1 complete ==='
     // and survives the Node.js/NSSM service being stopped.
     const child = spawn(
       'powershell.exe',
-      ['-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psScript],
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psScript],
       {
         detached: true,
         stdio:    'ignore',
