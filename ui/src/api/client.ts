@@ -4,6 +4,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+    // Without this a stalled endpoint hangs the caller forever; polled views
+    // then queue requests until the browser's connection limit freezes the UI.
+    signal: AbortSignal.timeout(30_000),
     ...options,
   });
   if (!res.ok) {
@@ -558,10 +561,12 @@ export interface DiagResult {
   ok:         boolean;
   latencyMs:  number | null;
   error:      string | null;
+  /** Actionable next step, e.g. "switch the RCON host to 127.0.0.1". */
+  hint?:      string;
 }
 
 export interface DiagnosticsResponse {
-  rcon:    DiagResult & { authenticated?: boolean };
+  rcon:    DiagResult;
   rest:    DiagResult & { serverName?: string; version?: string };
   summary: string;
 }

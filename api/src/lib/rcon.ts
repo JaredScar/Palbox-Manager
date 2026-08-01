@@ -54,17 +54,47 @@ export class RconClient {
     this.password = password;
   }
 
-  connect(): Promise<void> {
+  /**
+   * Opens the socket and authenticates.
+   *
+   * A bare net.Socket has NO connect timeout — if a firewall silently drops
+   * SYN packets (rather than sending RST) the socket waits indefinitely and
+   * this promise never settles. Every caller must therefore be bounded.
+   */
+  connect(timeoutMs = 5000): Promise<void> {
     return new Promise((resolve, reject) => {
       const sock = new net.Socket();
       this.socket = sock;
 
+      let settled = false;
+      let connectTimer: NodeJS.Timeout;
+
+      const fail = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(connectTimer);
+        sock.destroy();
+        this.socket = null;
+        reject(err);
+      };
+      const succeed = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(connectTimer);
+        resolve();
+      };
+
+      connectTimer = setTimeout(
+        () => fail(new Error(`RCON connect timed out after ${timeoutMs}ms (${this.host}:${this.port})`)),
+        timeoutMs,
+      );
+
       sock.connect(this.port, this.host, async () => {
         try {
           await this.sendRaw(SERVERDATA_AUTH, this.password, true);
-          resolve();
+          succeed();
         } catch (e) {
-          reject(e);
+          fail(e as Error);
         }
       });
 
@@ -94,10 +124,7 @@ export class RconClient {
         if (consumed > 0) this.buffer = this.buffer.slice(consumed);
       });
 
-      sock.on('error', (err) => {
-        this.socket = null;
-        reject(err);
-      });
+      sock.on('error', (err) => fail(err));
 
       sock.on('close', () => {
         this.socket = null;
@@ -138,16 +165,21 @@ export class RconClient {
   }
 }
 
-// Stateless helper — opens, authenticates, runs command, closes
+// Stateless helper — opens, authenticates, runs command, closes.
+// The finally block guarantees the socket is released even when connect()
+// or send() throws, which previously leaked a socket per failed call.
 export async function rconExec(
   host: string,
   port: number,
   password: string,
   command: string,
+  timeoutMs = 5000,
 ): Promise<string> {
   const client = new RconClient(host, port, password);
-  await client.connect();
-  const result = await client.send(command);
-  client.disconnect();
-  return result;
+  try {
+    await client.connect(timeoutMs);
+    return await client.send(command);
+  } finally {
+    client.disconnect();
+  }
 }

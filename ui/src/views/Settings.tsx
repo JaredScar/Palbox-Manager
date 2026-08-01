@@ -732,6 +732,11 @@ function DiagRow({ label, result }: { label: string; result: DiagnosticsResponse
       {!ok && result.error && (
         <p className="text-xs text-red-300/90 leading-relaxed pl-4">{result.error}</p>
       )}
+      {result.hint && (
+        <p className="text-xs text-aqua leading-relaxed pl-4 mt-1 border-l-2 border-aqua/40 ml-0.5">
+          {result.hint}
+        </p>
+      )}
       {'serverName' in result && result.serverName && (
         <p className="text-xs text-fog pl-4">Server: {result.serverName} · v{(result as DiagnosticsResponse['rest']).version}</p>
       )}

@@ -70,9 +70,14 @@ export function Dashboard() {
   const [diagResult, setDiagResult] = useState<DiagnosticsResponse | null>(null);
   const [diagDismissed, setDiagDismissed] = useState(false);
   const diagRanRef = useRef(false);
+  const refreshing = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!api) return;
+    // Skip this tick if the previous refresh is still in flight, otherwise a
+    // slow response makes the 10s poll queue requests faster than they drain.
+    if (refreshing.current) return;
+    refreshing.current = true;
     try {
       const [s, m, w, maint, lb] = await Promise.all([
         api.status(),
@@ -83,7 +88,10 @@ export function Dashboard() {
       ]);
       setStatus(s); setMetrics(m); setWorld(w); setMaintenance(maint); setLeaderboard(lb);
     } catch {}
-    setLoading(false);
+    finally {
+      refreshing.current = false;
+      setLoading(false);
+    }
   }, [api]);
 
   function toggleWidget(id: WidgetId) {
@@ -218,6 +226,12 @@ export function Dashboard() {
                 <div className="flex items-start gap-1.5 text-xs text-red-300/90">
                   <span className="font-semibold text-red-400 flex-shrink-0">REST API:</span>
                   <span>{diagResult.rest.error}</span>
+                </div>
+              )}
+              {(diagResult.rcon.hint ?? diagResult.rest.hint) && (
+                <div className="flex items-start gap-1.5 text-xs text-aqua">
+                  <span className="font-semibold flex-shrink-0">Fix:</span>
+                  <span>{diagResult.rcon.hint ?? diagResult.rest.hint}</span>
                 </div>
               )}
             </div>

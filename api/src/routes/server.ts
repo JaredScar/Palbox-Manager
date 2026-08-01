@@ -14,6 +14,19 @@ import { getOnlinePlayers, clearPlayers } from '../services/playerTracker.js';
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
 
+/**
+ * Rejects if `p` has not settled within `ms`. Used to keep polled endpoints
+ * responsive — a stalled network call must never hold the HTTP response open.
+ */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) =>
+      setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
 router.get('/status', requirePermission('server.view'), async (req, res) => {
   const inst = req.instance!;
   const [{ status, uptime }, { cpuPct, memMb }] = await Promise.all([
@@ -33,7 +46,13 @@ router.get('/status', requirePermission('server.view'), async (req, res) => {
   // (steam IDs) and is authoritative when available.
   if (status === 'online' && inst.rcon_password) {
     try {
-      const raw = await rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'ShowPlayers');
+      // Hard-capped: /status is polled every 10s by the dashboard, so a slow or
+      // unreachable RCON host must degrade to the log-based list, never stall.
+      const raw = await withTimeout(
+        rconExec(inst.rcon_host, inst.rcon_port, inst.rcon_password, 'ShowPlayers', 2500),
+        4000,
+        'RCON ShowPlayers',
+      );
       // Response: first line is a header "name,playeruid,steamid" — skip it.
       const lines = raw.split('\n').slice(1).filter((l) => l.includes(','));
       if (lines.length > 0) {
