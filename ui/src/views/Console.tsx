@@ -267,7 +267,7 @@ export function Console() {
 
   return (
     <ViewWrapper eyebrow="Live console" title="Server console"
-      description="Streaming stdout over WebSocket. Send RCON commands or run saved macros."
+      description="Captured server output and Palbox events over WebSocket. Send RCON commands or run saved macros."
       accentVar="var(--lime)"
       actions={
         <>
@@ -301,13 +301,29 @@ export function Console() {
         <div className="flex flex-col gap-3">
           {tab === 'live' ? (
             <>
-              {/* Worth saying even while lines are flowing, so the stale
-                  setting actually gets corrected. */}
+              {/* Shown whenever no real console output is being read, not just
+                  when the view is empty - Palbox's own event feed fills the
+                  pane and would otherwise hide the fact that the game's output
+                  is missing, along with the only control that fixes it. */}
+              {logStatus && !logStatus.exists && (
+                <div className="text-[12px] rounded-lg px-3 py-2.5 bg-amber-500/10 text-amber-300 border border-amber-500/30 space-y-2">
+                  <div>
+                    Showing Palbox events only — the game's own console output is not being captured.
+                    Palworld writes no log file, so its output has to be redirected to one, which
+                    works for servers run as a Windows service.
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Button variant="ghost" loading={enablingLog} onClick={handleEnableLogging}>
+                      Capture console output
+                    </Button>
+                    {enableLogMsg && <span className="text-fog">{enableLogMsg}</span>}
+                  </div>
+                </div>
+              )}
               {logStatus?.configuredMismatch && (
                 <div className="text-[12px] rounded-lg px-3 py-2 bg-amber-500/10 text-amber-300 border border-amber-500/30">
                   Reading <span className="font-mono">{logStatus.path}</span> — the configured path{' '}
-                  <span className="font-mono">{logStatus.configuredPath}</span> does not exist. Palworld names its
-                  log after the Unreal project, so it is <span className="font-mono">Pal.log</span>.{' '}
+                  <span className="font-mono">{logStatus.configuredPath}</span> does not exist.{' '}
                   <a href="/settings#instances" className="underline">Update instance settings</a>
                 </div>
               )}
@@ -323,16 +339,10 @@ export function Console() {
                             <p className="text-[11px] font-mono text-fog/60 break-all">{logStatus.path}</p>
                           )}
                           {!logStatus.exists && (
-                            <div className="flex items-center gap-3 pt-1">
-                              <Button variant="ghost" loading={enablingLog} onClick={handleEnableLogging}>
-                                Enable server logging
-                              </Button>
-                              <a href="/settings#instances" className="text-aqua hover:underline text-[12px]">
-                                Instance settings
-                              </a>
-                            </div>
+                            <a href="/settings#instances" className="inline-block text-aqua hover:underline text-[12px]">
+                              Instance settings
+                            </a>
                           )}
-                          {enableLogMsg && <p className="text-[12px] text-aqua leading-relaxed">{enableLogMsg}</p>}
                         </div>
                       ) : (
                         'Waiting for log output…'

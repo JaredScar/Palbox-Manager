@@ -1,9 +1,10 @@
 import { exec, execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
-import path from 'path';
+import fs from 'fs';
 import type { Instance } from '../db/types';
 import { log } from '../lib/logger';
+import { stdoutCapturePath } from '../lib/logfile.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -65,13 +66,18 @@ export interface LoggingSetupResult {
 }
 
 /**
- * Makes the server write a log file.
+ * Redirects the server's console output to a file, which is the only way to
+ * see it.
  *
- * Palworld is an Unreal shipping build, which only opens Pal\Saved\Logs\Pal.log
- * when launched with -log. Without it no log is ever produced, and no amount of
- * searching will find one - which is why the console can appear permanently
- * empty on an otherwise healthy server. RCON and the REST API are no
- * substitute: neither exposes a log or console stream.
+ * Palworld writes no log: Pocket Pair ships the dedicated server with Unreal's
+ * log output disabled, so Pal\Saved\Logs\Pal.log does not exist and no launch
+ * argument creates one. Everything goes to stdout and is discarded when the
+ * process exits. NSSM can redirect that stream to a file, which is how other
+ * panels show a live console, and what makes player connects, save events and
+ * crash traces visible here.
+ *
+ * Only works for servers run as a service. A directly launched process has no
+ * console to redirect, so those keep the Palbox event feed alone.
  */
 export async function enableFileLogging(inst: Instance): Promise<LoggingSetupResult> {
   if (os.platform() !== 'win32') {
@@ -80,59 +86,69 @@ export async function enableFileLogging(inst: Instance): Promise<LoggingSetupRes
 
   const hasService = inst.service_name ? await nssmServiceExists(inst.service_name) : false;
   if (!hasService) {
-    // Direct launches get -log added by startServer, so there is no persistent
-    // configuration to change.
-    return {
-      changed: false,
-      restartRequired: true,
-      message: inst.service_name
-        ? `No NSSM service named "${inst.service_name}" was found. Palbox launches the executable directly and now passes -log, so restart the server from the panel to start producing a log.`
-        : 'This instance launches the executable directly. Palbox now passes -log, so restart the server from the panel to start producing a log.',
-    };
-  }
-
-  let params: string;
-  try {
-    params = await nssmGet(inst.service_name, 'AppParameters');
-  } catch (e) {
-    throw new Error(
-      `Could not read the launch arguments for service "${inst.service_name}" via nssm: ${(e as Error).message}`,
-    );
-  }
-
-  const alreadyLogging = /(^|\s)-log(\s|$)/i.test(params);
-  if (!alreadyLogging) {
-    const updated = params ? `${params} -log` : '-log';
-    await nssmSet(inst.service_name, 'AppParameters', updated);
-    log.info(`[${inst.name}] Added -log to service launch arguments: ${updated}`);
-  }
-
-  // Capturing stdout as well means the console has something to show even if
-  // the game's own log stays empty.
-  let stdoutCaptured = false;
-  try {
-    const consoleLog = path.join(path.dirname(inst.exe_path || 'C:\\'), 'palbox-console.log');
-    await nssmSet(inst.service_name, 'AppStdout', consoleLog);
-    await nssmSet(inst.service_name, 'AppStderr', consoleLog);
-    await nssmSet(inst.service_name, 'AppRotateFiles', '1');
-    stdoutCaptured = true;
-  } catch (e) {
-    log.warn(`[${inst.name}] Could not configure stdout capture:`, e);
-  }
-
-  if (alreadyLogging && !stdoutCaptured) {
     return {
       changed: false,
       restartRequired: false,
-      message: 'The server is already configured with -log. If no log appears, check that the server has been restarted since it was set.',
+      message: inst.service_name
+        ? `No NSSM service named "${inst.service_name}" was found. Palworld writes no log of its own, and its console output can only be captured when it runs as a service, so register it with NSSM to get real console output.`
+        : 'This instance launches the executable directly. Palworld writes no log of its own, and its console output can only be captured when it runs as a service, so register it with NSSM to get real console output.',
     };
   }
 
+  const target = stdoutCapturePath(inst);
+  if (!target) {
+    throw new Error('Set the server executable path for this instance first — it determines where the captured output is written.');
+  }
+
+  const already = await nssmGet(inst.service_name, 'AppStdout').catch(() => '');
+  await configureOutputCapture(inst.service_name, target);
+
+  const sameAsBefore = already.trim().toLowerCase() === target.toLowerCase();
   return {
-    changed: true,
+    changed: !sameAsBefore,
     restartRequired: true,
-    message: `Logging configured for "${inst.service_name}"${alreadyLogging ? '' : ' (-log added)'}${stdoutCaptured ? ' and console output is now captured' : ''}. Restart the server for it to take effect.`,
+    message: sameAsBefore
+      ? `Console output was already being captured to ${target}. If it is empty, the server has not been restarted since capture was set up — Palworld only writes to a console it was started with.`
+      : `Console output will be captured to ${target}. Restart the server for it to take effect; Palworld only writes to the console it was started with.`,
   };
+}
+
+/** Points the service's stdout and stderr at a file, with rotation so it cannot grow without bound. */
+async function configureOutputCapture(serviceName: string, target: string): Promise<void> {
+  await nssmSet(serviceName, 'AppStdout', target);
+  await nssmSet(serviceName, 'AppStderr', target);
+  // Rotate rather than truncate, so a restart does not throw away the output
+  // that explains why the previous run ended.
+  await nssmSet(serviceName, 'AppRotateFiles', '1');
+  await nssmSet(serviceName, 'AppRotateOnline', '1');
+  await nssmSet(serviceName, 'AppRotateBytes', String(20 * 1024 * 1024));
+}
+
+/**
+ * Sets up output capture before a start, if it is not already configured.
+ *
+ * Redirection can only be applied while the service is stopped and only takes
+ * effect on the next start, so doing it here means the console works without
+ * the user having to know any of this.
+ */
+async function ensureOutputCapture(inst: Instance): Promise<void> {
+  if (os.platform() !== 'win32' || !inst.service_name) return;
+  const target = stdoutCapturePath(inst);
+  if (!target) return;
+
+  // A read failure must not stop the write: nssm can exit non-zero simply
+  // because the parameter has never been set, which is the case that needs
+  // configuring most.
+  const current = await nssmGet(inst.service_name, 'AppStdout').catch(() => '');
+  if (current.trim()) return; // already redirected somewhere
+
+  try {
+    await configureOutputCapture(inst.service_name, target);
+    log.info(`[${inst.name}] Console output will be captured to ${target}`);
+  } catch (e) {
+    // Never block a start over this.
+    log.warn(`[${inst.name}] Could not configure console capture:`, e);
+  }
 }
 
 /** Check whether an NSSM service exists without throwing. */
@@ -204,6 +220,9 @@ export async function startServer(inst: Instance): Promise<void> {
   log.info(`Starting ${inst.name}...`);
   const hasService = inst.service_name ? await nssmServiceExists(inst.service_name) : false;
   if (hasService) {
+    // Redirection can only be set while stopped and only applies to the next
+    // start, so this is the one moment it can be arranged.
+    await ensureOutputCapture(inst);
     await nssmCommand(inst.service_name, 'start');
     return;
   }
@@ -215,12 +234,18 @@ export async function startServer(inst: Instance): Promise<void> {
     );
   }
   log.warn(`NSSM service "${inst.service_name}" not found — launching "${inst.exe_path}" directly.`);
-  // -log makes the Unreal shipping build open Pal\Saved\Logs\Pal.log. Without
-  // it the server writes no log at all and the live console has no source.
-  const child = spawn(`"${inst.exe_path}"`, ['-log'], {
+  // Console output is redirected to the same file the service would use, so a
+  // directly launched server still gets a live console. Palworld writes no log
+  // of its own, so without this there is nothing to read.
+  const capture = stdoutCapturePath(inst);
+  let out: number | 'ignore' = 'ignore';
+  if (capture) {
+    try { out = fs.openSync(capture, 'a'); } catch { out = 'ignore'; }
+  }
+  const child = spawn(`"${inst.exe_path}"`, [], {
     shell: true,
     detached: true,
-    stdio: 'ignore',
+    stdio: out === 'ignore' ? 'ignore' : ['ignore', out, out],
   });
   child.unref();
 }

@@ -5,19 +5,28 @@ import type { Instance } from '../db/types.js';
 /**
  * Locating the Palworld server log.
  *
- * The dedicated server is an Unreal project named "Pal", and Unreal names its
- * log after the project - so the file is Pal\Saved\Logs\Pal.log, not the
- * PalServer.log that the executable name suggests. Setup guides get this wrong
- * often enough that the configured path cannot be trusted, and a wrong value
- * used to leave the console silent forever with no explanation.
+ * Palworld does not write one. Pocket Pair ships the dedicated server with
+ * Unreal's log output disabled, so unlike every other Unreal game there is no
+ * Pal\Saved\Logs\Pal.log and no launch argument that creates one - -log does
+ * nothing here. The server writes to stdout and discards it when it exits.
  *
- * On every start Unreal renames the previous log to Pal-backup-<timestamp>.log
- * and opens a fresh Pal.log, so the presence of backups is a reliable sign
- * that file logging works even when no live log exists yet.
+ * Capturing that stdout is therefore the only way to get real console output,
+ * which is what other panels do and what Palbox now configures through NSSM.
+ * The captured file is preferred over anything under Saved\Logs, which is
+ * still searched because a logging mod or a future game update may put
+ * something there.
  */
 
 const PREFERRED_NAMES = ['Pal.log', 'PalServer.log'];
 const BACKUP_RE = /-backup-.*\.log$/i;
+
+/** Where Palbox tells NSSM to redirect the server's console output. */
+export const CAPTURE_FILENAME = 'palbox-console.log';
+
+export function stdoutCapturePath(inst: Instance): string | null {
+  if (!inst.exe_path) return null;
+  return path.join(path.dirname(inst.exe_path), CAPTURE_FILENAME);
+}
 
 /** Directories worth searching, derived from whatever paths are configured. */
 export function candidateLogDirs(inst: Instance): string[] {
@@ -73,6 +82,13 @@ export function resolveLogFile(inst: Instance): LogFileResolution {
     return { file: inst.log_file, searched, backupsFound: false };
   }
 
+  // Captured stdout is the only source of real console output on a stock
+  // server, so it takes precedence over anything found under Saved\Logs.
+  const capture = stdoutCapturePath(inst);
+  if (capture && fs.existsSync(capture)) {
+    return { file: capture, searched, backupsFound: false };
+  }
+
   let backupsFound = false;
   let newest: { file: string; mtime: number } | null = null;
 
@@ -105,5 +121,5 @@ export function explainMissingLog(res: LogFileResolution): string {
   if (res.backupsFound) {
     return 'Only rotated logs (Pal-backup-*.log) were found, so file logging works but the server has not opened a new log this run. It should appear shortly after the server starts.';
   }
-  return 'No log file was found. Palworld is an Unreal shipping build and only writes Pal\\Saved\\Logs\\Pal.log when it is launched with -log, so a server started without that flag produces no log at all. RCON and the REST API cannot fill the gap - neither exposes a log or console stream - so until logging is enabled the console shows Palbox\'s own event feed instead.';
+  return 'Palworld does not write a log file. Pocket Pair ships the dedicated server with Unreal\'s log output disabled, so there is no Pal.log and no launch argument that creates one - the server writes to its console and discards it. Capturing that output is the only way to see it, which Palbox configures automatically for servers it runs as a Windows service. Until the server has been restarted since capture was set up, the console shows Palbox\'s own event feed instead.';
 }
