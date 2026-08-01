@@ -25,6 +25,10 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '0.0.0.0']);
 const isLoopback = (h: string) => LOOPBACK_HOSTS.has(h.trim().toLowerCase());
 const LOOPBACK = '127.0.0.1';
 
+// Probe budget. Every probe runs concurrently, so the whole request is bounded
+// by the slowest single probe rather than the sum of all of them.
+const PROBE_MS = 5000;
+
 /**
  * Node's fetch throws a generic `TypeError: fetch failed` and stores the real
  * network error (ECONNREFUSED, ETIMEDOUT, ...) on `cause`. Without unwrapping
@@ -38,15 +42,16 @@ function describeError(e: unknown): string {
   return causeMsg ?? err?.message ?? String(e);
 }
 
-// ── Individual probes ────────────────────────────────────────────────────────
+interface Probe { ok: boolean; latencyMs: number; raw: string | null }
+interface RestProbe extends Probe { serverName?: string; version?: string }
 
-async function probeRcon(host: string, port: number, password: string) {
+async function probeRcon(host: string, port: number, password: string): Promise<Probe> {
   const t0 = Date.now();
   const client = new RconClient(host, port, password);
   try {
-    await client.connect(5000);
-    await client.send('Info');
-    return { ok: true, latencyMs: Date.now() - t0, raw: null as string | null };
+    await client.connect(PROBE_MS);
+    await client.send('Info', PROBE_MS);
+    return { ok: true, latencyMs: Date.now() - t0, raw: null };
   } catch (e) {
     return { ok: false, latencyMs: Date.now() - t0, raw: describeError(e) };
   } finally {
@@ -54,12 +59,12 @@ async function probeRcon(host: string, port: number, password: string) {
   }
 }
 
-async function probeRest(host: string, port: number, password: string) {
+async function probeRest(host: string, port: number, password: string): Promise<RestProbe> {
   const t0 = Date.now();
   try {
     const info = await restGetInfo(host, port, password);
     return {
-      ok: true, latencyMs: Date.now() - t0, raw: null as string | null,
+      ok: true, latencyMs: Date.now() - t0, raw: null,
       serverName: info.servername, version: info.version,
     };
   } catch (e) {
@@ -67,17 +72,19 @@ async function probeRest(host: string, port: number, password: string) {
   }
 }
 
-// ── Error → actionable message ───────────────────────────────────────────────
+// ── Error -> actionable message ──────────────────────────────────────────────
 
 function explainRcon(raw: string, host: string, port: number): string {
   if (raw.includes('ECONNREFUSED'))
-    return `Connection refused on ${host}:${port} — nothing is listening there. Check RCONEnabled=True and RCONPort=${port} in PalWorldSettings.ini, and restart the server.`;
+    return `Connection refused on ${host}:${port} — nothing is listening on that address. Check RCONEnabled=True and RCONPort=${port} in PalWorldSettings.ini, then restart the server.`;
   if (raw.includes('ETIMEDOUT') || raw.includes('timed out'))
     return `Timed out reaching ${host}:${port} — packets are being dropped, usually by a firewall.`;
   if (raw.includes('authentication'))
     return `Authentication failed — the RCON password does not match AdminPassword in PalWorldSettings.ini (case-sensitive).`;
   if (raw.includes('ENOTFOUND') || raw.includes('EAI_AGAIN'))
     return `Cannot resolve host "${host}".`;
+  if (raw.includes('ECONNRESET'))
+    return `Connection reset by ${host}:${port} — the server accepted then dropped the connection, which usually means the RCON password is wrong.`;
   return raw;
 }
 
@@ -102,63 +109,63 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
   const restPort =
     ((inst as unknown as Record<string, unknown>).rest_api_port as number | undefined) ?? 8212;
   const host = inst.rcon_host;
-  const hostIsRemote = host && !isLoopback(host);
+  const pass = inst.rcon_password;
 
+  const rconConfigured = Boolean(host && inst.rcon_port && pass);
+  const restConfigured = Boolean(host && pass);
+  // The panel usually runs on the same box as the game server. Connecting to
+  // the machine's own public IP often fails (no NAT hairpin) even when the
+  // service is perfectly reachable from the internet, so probe loopback too.
+  const alsoTryLoopback = Boolean(host) && !isLoopback(host);
+
+  // All probes run concurrently — sequential probing previously exceeded the
+  // client's request timeout and surfaced as "signal timed out".
+  const [rconMain, rconLoop, restMain, restLoop] = await Promise.all([
+    rconConfigured ? probeRcon(host, inst.rcon_port, pass) : null,
+    rconConfigured && alsoTryLoopback ? probeRcon(LOOPBACK, inst.rcon_port, pass) : null,
+    restConfigured ? probeRest(host, restPort, pass) : null,
+    restConfigured && alsoTryLoopback ? probeRest(LOOPBACK, restPort, pass) : null,
+  ]);
+
+  // ── RCON result ────────────────────────────────────────────────────────────
   const rcon: DiagResult = { ok: false, latencyMs: null, error: null };
-  const rest: DiagnosticsResponse['rest'] = { ok: false, latencyMs: null, error: null };
-
-  // ── RCON ───────────────────────────────────────────────────────────────────
-  if (!host || !inst.rcon_port || !inst.rcon_password) {
+  if (!rconConfigured) {
     rcon.error = 'RCON is not fully configured — host, port, and password are all required.';
   } else {
-    const primary = await probeRcon(host, inst.rcon_port, inst.rcon_password);
-    rcon.ok = primary.ok;
-    rcon.latencyMs = primary.latencyMs;
-
-    if (!primary.ok) {
-      rcon.error = explainRcon(primary.raw!, host, inst.rcon_port);
-
-      // The panel usually runs on the same box as the game server. Connecting to
-      // the machine's own public IP frequently fails (no NAT hairpin / service
-      // bound to a different interface) while loopback works fine.
-      if (hostIsRemote) {
-        const lb = await probeRcon(LOOPBACK, inst.rcon_port, inst.rcon_password);
-        if (lb.ok) {
-          rcon.hint = `RCON responded on ${LOOPBACK}:${inst.rcon_port} in ${lb.latencyMs}ms. Palbox is running on the same machine as the server, so change the RCON host from "${host}" to ${LOOPBACK}.`;
-        }
+    rcon.ok = rconMain!.ok;
+    rcon.latencyMs = rconMain!.latencyMs;
+    if (!rconMain!.ok) {
+      rcon.error = explainRcon(rconMain!.raw!, host, inst.rcon_port);
+      if (rconLoop?.ok) {
+        rcon.hint = `RCON answered on ${LOOPBACK}:${inst.rcon_port} in ${rconLoop.latencyMs}ms. Palbox runs on the same machine as the server, so change the RCON host from "${host}" to ${LOOPBACK}.`;
       }
     }
   }
 
-  // ── REST API ───────────────────────────────────────────────────────────────
-  if (!inst.rcon_password) {
-    rest.error = 'REST API password is not configured — it uses the same AdminPassword as RCON.';
+  // ── REST result ────────────────────────────────────────────────────────────
+  const rest: DiagnosticsResponse['rest'] = { ok: false, latencyMs: null, error: null };
+  if (!restConfigured) {
+    rest.error = 'REST API is not configured — it needs the host and the AdminPassword.';
+  } else if (restMain!.ok) {
+    rest.ok = true;
+    rest.latencyMs = restMain!.latencyMs;
+    rest.serverName = restMain!.serverName;
+    rest.version = restMain!.version;
   } else {
-    const primary = await probeRest(host, restPort, inst.rcon_password);
-    rest.ok = primary.ok;
-    rest.latencyMs = primary.latencyMs;
-
-    if (primary.ok) {
-      rest.serverName = primary.serverName;
-      rest.version = primary.version;
-    } else {
-      rest.error = explainRest(primary.raw!, host, restPort);
-
-      if (hostIsRemote) {
-        const lb = await probeRest(LOOPBACK, restPort, inst.rcon_password);
-        if (lb.ok) {
-          rest.hint = `The REST API responded on ${LOOPBACK}:${restPort} in ${lb.latencyMs}ms. Change the RCON host from "${host}" to ${LOOPBACK} — Palbox is running on the same machine as the server.`;
-        }
-      }
+    rest.latencyMs = restMain!.latencyMs;
+    rest.error = explainRest(restMain!.raw!, host, restPort);
+    if (restLoop?.ok) {
+      rest.hint = `The REST API answered on ${LOOPBACK}:${restPort} in ${restLoop.latencyMs}ms (server: ${restLoop.serverName}). Change the RCON host from "${host}" to ${LOOPBACK}.`;
     }
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────
+  const loopbackWorks = Boolean(rconLoop?.ok || restLoop?.ok);
   let summary: string;
   if (rcon.ok && rest.ok) {
     summary = 'Both RCON and the REST API are connected and working.';
-  } else if (rcon.hint || rest.hint) {
-    summary = `Both services are reachable on ${LOOPBACK} but not on "${host}". Change the RCON host to ${LOOPBACK} in this instance's settings.`;
+  } else if (loopbackWorks) {
+    summary = `Reachable on ${LOOPBACK} but not on "${host}". This machine cannot connect to its own public IP, which is normal. Set the RCON host to ${LOOPBACK} in this instance's settings.`;
   } else if (rcon.ok) {
     summary = 'RCON is working but the REST API is not — player positions and world map data will be unavailable.';
   } else if (rest.ok) {

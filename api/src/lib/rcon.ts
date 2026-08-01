@@ -136,7 +136,7 @@ export class RconClient {
     });
   }
 
-  private sendRaw(type: number, body: string, isAuth = false): Promise<string> {
+  private sendRaw(type: number, body: string, isAuth = false, timeoutMs = 5000): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.socket) return reject(new Error('Not connected'));
       const id = isAuth ? 1 : this.reqId++;
@@ -146,13 +146,13 @@ export class RconClient {
           this.pendingMap.delete(id);
           reject(new Error('RCON request timed out'));
         }
-      }, 5000);
+      }, timeoutMs);
       this.socket.write(encodePacket(id, type, body));
     });
   }
 
-  send(command: string): Promise<string> {
-    return this.sendRaw(SERVERDATA_EXECCOMMAND, command);
+  send(command: string, timeoutMs = 5000): Promise<string> {
+    return this.sendRaw(SERVERDATA_EXECCOMMAND, command, false, timeoutMs);
   }
 
   disconnect(): void {
@@ -178,7 +178,7 @@ export async function rconExec(
   const client = new RconClient(host, port, password);
   try {
     await client.connect(timeoutMs);
-    return await client.send(command);
+    return await client.send(command, timeoutMs);
   } finally {
     client.disconnect();
   }

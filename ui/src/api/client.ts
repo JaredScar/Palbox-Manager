@@ -1,14 +1,24 @@
 const BASE = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + path, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
-    // Without this a stalled endpoint hangs the caller forever; polled views
-    // then queue requests until the browser's connection limit freezes the UI.
-    signal: AbortSignal.timeout(30_000),
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+      // Without this a stalled endpoint hangs the caller forever; polled views
+      // then queue requests until the browser's connection limit freezes the UI.
+      signal: AbortSignal.timeout(30_000),
+      ...options,
+    });
+  } catch (e) {
+    // AbortSignal.timeout throws a TimeoutError DOMException whose message
+    // ("signal timed out") is meaningless to a user.
+    if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new Error(`Request to ${path} timed out — the server did not respond in time.`);
+    }
+    throw e;
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error ?? res.statusText);
@@ -192,9 +202,13 @@ export function makeApi(instanceId: number) {
     palrestInfo: () => request<PalRestInfo>(p('/palrest/info')),
     palrestPlayers: () => request<PalRestPlayer[]>(p('/palrest/players')),
 
-    // Connection diagnostics
+    // Connection diagnostics — probes can legitimately take a few seconds each,
+    // so this gets a longer budget than the default request timeout.
     diagnostics: () =>
-      request<DiagnosticsResponse>(p('/server/diagnostics'), { method: 'POST' }),
+      request<DiagnosticsResponse>(p('/server/diagnostics'), {
+        method: 'POST',
+        signal: AbortSignal.timeout(60_000),
+      }),
   };
 }
 
