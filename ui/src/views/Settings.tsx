@@ -697,7 +697,7 @@ function InstanceForm({ initial, onSave, onCancel, saving }: {
         <InstanceField label="PalWorldSettings.ini"  field="settings_ini" form={form} set={set} placeholder="C:\PalServer\Pal\Saved\Config\WindowsServer\PalWorldSettings.ini" />
         <InstanceField label="Save data directory"   field="save_dir"     form={form} set={set} placeholder="C:\PalServer\Pal\Saved" />
         <InstanceField label="Backup output dir"     field="backup_dir"   form={form} set={set} placeholder="C:\PalboxBackups" />
-        <InstanceField label="Log file path"         field="log_file"     form={form} set={set} placeholder="C:\PalServer\Pal\Saved\Logs\PalServer.log" />
+        <InstanceField label="Log file path"         field="log_file"     form={form} set={set} placeholder="C:\PalServer\Pal\Saved\Logs\Pal.log" />
         <InstanceField label="Mods directory"        field="mods_dir"     form={form} set={set} placeholder="C:\PalServer\Pal\Binaries\Win64\Mods" />
         <InstanceField label="SteamCMD path"         field="steamcmd_exe" form={form} set={set} placeholder="C:\steamcmd\steamcmd.exe" />
         <InstanceField label="Public IP"             field="public_ip"    form={form} set={set} placeholder="0.0.0.0" />

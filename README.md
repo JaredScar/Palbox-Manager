@@ -155,7 +155,7 @@ nssm start PalboxAPI
 |---|---|
 | **Authentication** | Username + password + optional TOTP 2FA, JWT cookie |
 | **Server control** | Start / Stop / Restart / Save via NSSM + RCON |
-| **Live console** | Tail `PalServer.log` over WebSocket, send RCON commands |
+| **Live console** | Tail `Pal.log` over WebSocket, send RCON commands |
 | **Backups** | Manual & scheduled `.zip` archives, rolling retention, restore |
 | **SteamCMD updates** | Steam API polling, one-click update with RCON warning |
 | **Settings editor** | Form + raw INI modes for `PalWorldSettings.ini` |

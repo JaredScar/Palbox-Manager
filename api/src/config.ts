@@ -26,7 +26,9 @@ export const cfg = {
     dir: optional('PALSERVER_DIR', 'C:\\PalServer'),
     exe: optional('PALSERVER_EXE', 'C:\\PalServer\\Pal\\Binaries\\Win64\\PalServer-Win64-Shipping-Cmd.exe'),
     serviceName: optional('PALSERVER_SERVICE', 'PalServer'),
-    logFile: optional('PALSERVER_LOG', 'C:\\PalServer\\Pal\\Saved\\Logs\\PalServer.log'),
+    // Unreal names the log after the project, so it is Pal.log despite the
+    // executable being PalServer.exe.
+    logFile: optional('PALSERVER_LOG', 'C:\\PalServer\\Pal\\Saved\\Logs\\Pal.log'),
     settingsIni: optional('SETTINGS_INI', 'C:\\PalServer\\Pal\\Saved\\Config\\WindowsServer\\PalWorldSettings.ini'),
   },
 

@@ -292,7 +292,7 @@ $palserverDir   = Prompt-Value "PalServer directory"        "C:\PalServer"
 $palserverExe   = Prompt-Value "PalServer.exe path"         "$palserverDir\Pal\Binaries\Win64\PalServer-Win64-Shipping-Cmd.exe"
 $settingsIni    = Prompt-Value "PalWorldSettings.ini"       "$palserverDir\Pal\Saved\Config\WindowsServer\PalWorldSettings.ini"
 $palserviceName = Prompt-Value "PalServer NSSM service name" "PalServer"
-$palserverLog   = Prompt-Value "PalServer log file"         "$palserverDir\Pal\Saved\Logs\PalServer.log"
+$palserverLog   = Prompt-Value "Palworld log file"          "$palserverDir\Pal\Saved\Logs\Pal.log"
 
 Write-Host ""
 Write-Host "  -- RCON --" -ForegroundColor DarkGray

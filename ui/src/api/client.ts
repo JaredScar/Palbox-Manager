@@ -591,7 +591,11 @@ export interface DiagResult {
 
 export interface LogStatus {
   configured: boolean;
+  /** The log actually in use, which may differ from the configured path. */
   path:       string;
+  configuredPath: string;
+  /** The configured path is wrong but a real log was found anyway. */
+  configuredMismatch: boolean;
   exists:     boolean;
   sizeBytes:  number | null;
   modifiedAt: number | null;

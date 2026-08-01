@@ -108,7 +108,7 @@ export function SetupWizard({ onDone }: Props) {
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10.5px] uppercase tracking-wide text-fog">Server log file path (optional)</label>
-                <input value={form.log_file} onChange={set('log_file')} placeholder="C:\PalServer\Pal\Saved\Logs\PalServer.log" className="font-mono text-[13px]" />
+                <input value={form.log_file} onChange={set('log_file')} placeholder="C:\PalServer\Pal\Saved\Logs\Pal.log" className="font-mono text-[13px]" />
               </div>
             </>
           )}

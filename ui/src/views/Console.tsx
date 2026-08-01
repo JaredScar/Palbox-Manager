@@ -286,6 +286,16 @@ export function Console() {
         <div className="flex flex-col gap-3">
           {tab === 'live' ? (
             <>
+              {/* Worth saying even while lines are flowing, so the stale
+                  setting actually gets corrected. */}
+              {logStatus?.configuredMismatch && (
+                <div className="text-[12px] rounded-lg px-3 py-2 bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                  Reading <span className="font-mono">{logStatus.path}</span> — the configured path{' '}
+                  <span className="font-mono">{logStatus.configuredPath}</span> does not exist. Palworld names its
+                  log after the Unreal project, so it is <span className="font-mono">Pal.log</span>.{' '}
+                  <a href="/settings#instances" className="underline">Update instance settings</a>
+                </div>
+              )}
               <div className="bg-panel border border-line rounded-2xl flex flex-col" style={{ height: 'calc(100vh - 340px)', minHeight: 280 }}>
                 <div className="flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed">
                   {lines.length === 0 && (
