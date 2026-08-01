@@ -138,7 +138,7 @@ function AppShell() {
             )}
             <NotificationBell />
           </div>
-          <div className="flex-1 min-h-0 overflow-hidden relative">
+          <div className="flex flex-col flex-1 min-h-0">
           <Routes>
             <Route path="/"             element={<Dashboard />} />
             <Route path="/players"      element={<Players />} />
