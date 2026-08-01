@@ -1,53 +1,56 @@
 @import "tailwindcss";
 
-/* ── Design tokens ─────────────────────────────────────────────────────────── */
-@theme {
-  /* Colors */
-  --color-void:       #120f1c;
-  --color-panel:      #1c1832;
-  --color-panel-raised: #26213f;
-  --color-line:       #392f5a;
-  --color-crimson:    #ff5d73;
-  --color-cream:      #ffe9c7;
-  --color-ember:      #ff9d3d;
-  --color-aqua:       #2fd9e8;
-  --color-lime:       #7ce666;
-  --color-gold:       #ffd447;
-  --color-violet:     #b27cf2;
-  --color-teal:       #3fd8b4;
-  --color-rust:       #ff5c5c;
-  --color-fog:        #a79fc7;
-  --color-bone:       #f3effc;
-  --color-bone-dim:   #c6bfe2;
+/* ── Runtime CSS variables (default: Violet theme) ─────────────────────────── */
+/* These are the single source of truth. Themes override them via [data-theme]. */
+:root {
+  --void:         #120f1c;
+  --panel:        #1c1832;
+  --panel-raised: #26213f;
+  --line:         #392f5a;
+  --crimson:      #ff5d73;
+  --cream:        #ffe9c7;
+  --ember:        #ff9d3d;
+  --aqua:         #2fd9e8;
+  --lime:         #7ce666;
+  --gold:         #ffd447;
+  --violet:       #b27cf2;
+  --teal:         #3fd8b4;
+  --rust:         #ff5c5c;
+  --fog:          #a79fc7;
+  --bone:         #f3effc;
+  --bone-dim:     #c6bfe2;
+}
 
-  /* Fonts */
+/* ── Tailwind design tokens — inline mode so utilities emit var() at runtime ── */
+/* This is the key fix: @theme inline makes bg-void compile to              */
+/* background-color: var(--color-void) which resolves to var(--void) below. */
+@theme inline {
+  /* Colors — each references a runtime CSS var so themes work dynamically */
+  --color-void:         var(--void);
+  --color-panel:        var(--panel);
+  --color-panel-raised: var(--panel-raised);
+  --color-line:         var(--line);
+  --color-crimson:      var(--crimson);
+  --color-cream:        var(--cream);
+  --color-ember:        var(--ember);
+  --color-aqua:         var(--aqua);
+  --color-lime:         var(--lime);
+  --color-gold:         var(--gold);
+  --color-violet:       var(--violet);
+  --color-teal:         var(--teal);
+  --color-rust:         var(--rust);
+  --color-fog:          var(--fog);
+  --color-bone:         var(--bone);
+  --color-bone-dim:     var(--bone-dim);
+
+  /* Fonts (static — don't change per theme) */
   --font-sans:    'Inter', ui-sans-serif, sans-serif;
   --font-display: 'Space Grotesk', ui-sans-serif, sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, monospace;
 
-  /* Custom animations */
+  /* Custom animations (static) */
   --animate-spin-slow: spin 1.4s linear infinite;
   --animate-pulse-dot: pulse-dot 1.8s ease-in-out infinite;
-}
-
-/* ── Keep legacy CSS vars for inline styles / SVG strokes ──────────────────── */
-:root {
-  --void:       #120f1c;
-  --panel:      #1c1832;
-  --panel-raised: #26213f;
-  --line:       #392f5a;
-  --crimson:    #ff5d73;
-  --cream:      #ffe9c7;
-  --ember:      #ff9d3d;
-  --aqua:       #2fd9e8;
-  --lime:       #7ce666;
-  --gold:       #ffd447;
-  --violet:     #b27cf2;
-  --teal:       #3fd8b4;
-  --rust:       #ff5c5c;
-  --fog:        #a79fc7;
-  --bone:       #f3effc;
-  --bone-dim:   #c6bfe2;
 }
 
 /* ── Theme: Emerald (green) ──────────────────────────────────────────────── */
@@ -139,10 +142,10 @@ body {
     radial-gradient(ellipse 60% 50% at 15% 90%, rgba(178,124,242,0.07) 0%, transparent 70%),
     radial-gradient(ellipse 50% 40% at 85% 10%, rgba(47,217,232,0.05) 0%, transparent 70%);
   color: var(--bone);
-  font-family: theme(--font-sans);
+  font-family: 'Inter', ui-sans-serif, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-::selection { background: theme(--color-crimson); color: theme(--color-void); }
+::selection { background: var(--crimson); color: var(--void); }
 
 /* ── Focus ring ─────────────────────────────────────────────────────────────── */
 :focus-visible {
@@ -153,27 +156,27 @@ body {
 
 /* ── Inputs ──────────────────────────────────────────────────────────────────*/
 input, select, textarea {
-  background: theme(--color-panel-raised);
-  border: 1px solid theme(--color-line);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  color: theme(--color-bone);
-  font-family: theme(--font-sans);
+  color: var(--bone);
+  font-family: 'Inter', ui-sans-serif, sans-serif;
   padding: 0.5rem 0.75rem;
   font-size: 13px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: rgba(178, 124, 242, 0.55);
-  box-shadow: 0 0 0 3px rgba(178, 124, 242, 0.12);
+  border-color: color-mix(in srgb, var(--violet) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--violet) 12%, transparent);
 }
-input::placeholder, textarea::placeholder { color: theme(--color-fog); opacity: 0.6; }
-select option { background: theme(--color-panel-raised); }
+input::placeholder, textarea::placeholder { color: var(--fog); opacity: 0.6; }
+select option { background: var(--panel-raised); }
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: theme(--color-line); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #4a4076; }
 
 /* ── Keyframes ─────────────────────────────────────────────────────────────── */
@@ -195,7 +198,7 @@ tbody tr:hover {
 /* ── Brand mark (Pokéball-ish shape, needs pseudo-elements) ────────────────── */
 .brand-mark {
   width: 32px; height: 32px; border-radius: 50%;
-  background: theme(--color-crimson);
+  background: var(--crimson);
   position: relative; flex-shrink: 0;
   border: 2px solid #1a1428; overflow: hidden;
 }
@@ -203,14 +206,14 @@ tbody tr:hover {
   content: '';
   position: absolute; left: -2px; right: -2px; bottom: -2px;
   height: 50%;
-  background: theme(--color-cream);
+  background: var(--cream);
   border-top: 2px solid #1a1428;
 }
 .brand-mark::after {
   content: '';
   position: absolute; top: 50%; left: 50%;
   width: 9px; height: 9px;
-  background: theme(--color-bone);
+  background: var(--bone);
   border-radius: 50%;
   transform: translate(-50%, -50%);
   border: 2px solid #1a1428;
