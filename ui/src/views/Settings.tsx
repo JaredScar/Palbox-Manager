@@ -749,6 +749,19 @@ function DiagRow({ label, note, optional, result }: {
           {result.hint}
         </p>
       )}
+      {result.attempts && result.attempts.length > 1 && (
+        <div className="pl-4 mt-1 flex flex-col gap-0.5">
+          {result.attempts.map((a) => (
+            <p key={a.strategy} className="text-xs text-fog font-mono">
+              <span className={a.error === 'OK' ? 'text-emerald-400' : 'text-fog'}>
+                {a.error === 'OK' ? 'ok  ' : 'x   '}
+              </span>
+              {a.strategy}
+              {a.error !== 'OK' && <span className="text-fog/70"> — {a.error}</span>}
+            </p>
+          ))}
+        </div>
+      )}
       {'serverName' in result && result.serverName && (
         <p className="text-xs text-fog pl-4">Server: {result.serverName} · v{(result as DiagnosticsResponse['rest']).version}</p>
       )}
@@ -795,7 +808,12 @@ function ConnectionDiagnostics({ instanceId }: { instanceId: number }) {
       {result && (
         <>
           <DiagRow label="REST API" note="preferred · port 8212" result={result.rest} />
-          <DiagRow label="RCON" note="legacy · console only" optional result={result.rcon} />
+          <DiagRow
+            label="RCON"
+            note={result.rcon.strategy ? `legacy · via ${result.rcon.strategy}` : 'legacy · console only'}
+            optional
+            result={result.rcon}
+          />
           <p className={`text-xs rounded-lg px-3 py-2 ${
             !result.degraded
               ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'

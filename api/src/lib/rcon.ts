@@ -13,6 +13,7 @@
  * only reaches for this when there is no REST equivalent.
  */
 import net from 'net';
+import { rconifyExec } from './rconify-client.js';
 
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
@@ -98,7 +99,8 @@ class PacketAssembler {
     // read past what actually arrived.
     const end = Math.min(offset + 4 + size - 2, this.buffer.length);
     const body = this.buffer.subarray(offset + 12, Math.max(offset + 12, end)).toString('utf8');
-    return { id, type, body: body.replace(/\n$/, '') };
+    // An oversized size field leaves the terminators inside the clamped range.
+    return { id, type, body: body.replace(/\0+$/, '').replace(/\n$/, '') };
   }
 }
 
@@ -207,10 +209,13 @@ export class RconClient {
         continue;
       }
 
-      // Palworld does not reliably echo the request id, so while the auth
-      // exchange is outstanding any inbound packet is taken as its response.
+      // Palworld does not reliably echo the request id on either the auth
+      // response or command output. Only one request is ever in flight, so
+      // when exactly one is outstanding an unrecognised id is still
+      // unambiguously its reply. Matching on id alone made every command
+      // against such a server time out despite the response having arrived.
       const key = this.pending.has(pkt.id) ? pkt.id
-        : (this.authId !== null && this.pending.has(this.authId)) ? this.authId
+        : this.pending.size === 1 ? this.pending.keys().next().value!
         : null;
       if (key === null) continue;
 
@@ -271,7 +276,7 @@ export class RconClient {
  * Opens, authenticates, runs one command, closes. The finally block releases
  * the socket even when connect() or send() throws.
  */
-export async function rconExec(
+export async function nativeRconExec(
   host: string,
   port: number,
   password: string,
@@ -285,4 +290,92 @@ export async function rconExec(
   } finally {
     client.disconnect();
   }
+}
+
+/**
+ * Two RCON implementations, tried in order. They put identical bytes on the
+ * wire and differ only in how forgiving they are about the reply.
+ *
+ * The native client goes first because it is the more accurate of the two: it
+ * reassembles multi-packet responses, decodes UTF-8 so non-ASCII player names
+ * survive, and reports a rejected password as a rejection. rconify decodes as
+ * ASCII and, because it treats any reply as a successful auth, reports a wrong
+ * password as success with empty output — which would look like a working
+ * connection returning nothing.
+ *
+ * rconify is kept as a fallback for quirks the native client has not been
+ * taught yet. scripts/rcon-strategy-test.mjs exercises both against a mock of
+ * Palworld's known deviations.
+ */
+export const RCON_STRATEGIES = [
+  { name: 'native',  exec: nativeRconExec },
+  { name: 'rconify', exec: rconifyExec },
+] as const;
+
+export type RconStrategyName = (typeof RCON_STRATEGIES)[number]['name'];
+
+/** Strategy that last succeeded, keyed by "host:port". */
+const preferredStrategy = new Map<string, RconStrategyName>();
+
+export function forgetRconStrategy(host: string, port: number): void {
+  preferredStrategy.delete(`${host}:${port}`);
+}
+
+export interface RconAttempt {
+  strategy: RconStrategyName;
+  error: string;
+}
+
+export class RconAllStrategiesFailed extends Error {
+  constructor(public attempts: RconAttempt[]) {
+    super(attempts.map((a) => `${a.strategy}: ${a.error}`).join(' | '));
+    this.name = 'RconAllStrategiesFailed';
+  }
+}
+
+/**
+ * Runs a command, trying each implementation until one answers and caching
+ * the winner so later calls go straight to it.
+ */
+export async function rconExecDetailed(
+  host: string,
+  port: number,
+  password: string,
+  command: string,
+  timeoutMs = 5000,
+): Promise<{ result: string; strategy: RconStrategyName }> {
+  const key = `${host}:${port}`;
+  const known = preferredStrategy.get(key);
+  const ordered = known
+    ? [...RCON_STRATEGIES].sort((a, b) => (a.name === known ? -1 : b.name === known ? 1 : 0))
+    : [...RCON_STRATEGIES];
+
+  const attempts: RconAttempt[] = [];
+  for (const strategy of ordered) {
+    try {
+      const result = await strategy.exec(host, port, password, command, timeoutMs);
+      preferredStrategy.set(key, strategy.name);
+      return { result, strategy: strategy.name };
+    } catch (e) {
+      const message = (e as Error).message;
+      attempts.push({ strategy: strategy.name, error: message });
+      // A rejected password is a definitive answer, not a quirk to route
+      // around. Falling through would hand it to an implementation that
+      // reports rejection as success and mask a simple misconfiguration.
+      if (message.includes('RCON_BAD_PASSWORD')) break;
+    }
+  }
+
+  preferredStrategy.delete(key);
+  throw new RconAllStrategiesFailed(attempts);
+}
+
+export async function rconExec(
+  host: string,
+  port: number,
+  password: string,
+  command: string,
+  timeoutMs = 5000,
+): Promise<string> {
+  return (await rconExecDetailed(host, port, password, command, timeoutMs)).result;
 }

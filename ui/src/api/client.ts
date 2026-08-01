@@ -577,6 +577,10 @@ export interface DiagResult {
   error:      string | null;
   /** Actionable next step, e.g. "switch the RCON host to 127.0.0.1". */
   hint?:      string;
+  /** Implementation that answered, when more than one was tried. */
+  strategy?:  string;
+  /** Outcome per RCON implementation, for pinning down protocol quirks. */
+  attempts?:  { strategy: string; error: string }[];
 }
 
 export interface DiagnosticsResponse {

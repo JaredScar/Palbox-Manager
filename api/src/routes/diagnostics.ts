@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
-import { RconClient } from '../lib/rcon.js';
+import { RCON_STRATEGIES, type RconStrategyName, type RconAttempt } from '../lib/rcon.js';
 import { restGetInfo } from '../services/palrest.js';
 import { candidateHosts, restPortOf } from '../services/connection.js';
 
@@ -14,6 +14,10 @@ export interface DiagResult {
   error:      string | null;
   /** Actionable next step shown beneath the error in the UI. */
   hint?:      string;
+  /** Implementation that answered, when more than one was tried. */
+  strategy?:  string;
+  /** Outcome per RCON implementation, for pinning down protocol quirks. */
+  attempts?:  { strategy: string; error: string }[];
 }
 
 export interface DiagnosticsResponse {
@@ -42,20 +46,38 @@ function describeError(e: unknown): string {
 }
 
 interface Probe { host: string; ok: boolean; latencyMs: number; raw: string | null }
+interface RconProbe extends Probe { strategy?: RconStrategyName; perStrategy: RconAttempt[] }
 interface RestProbe extends Probe { serverName?: string; version?: string }
 
-async function probeRcon(host: string, port: number, password: string): Promise<Probe> {
+/**
+ * Probes every RCON implementation independently rather than stopping at the
+ * first success, so the report shows which ones this server tolerates instead
+ * of collapsing to a single yes/no.
+ */
+async function probeRcon(host: string, port: number, password: string): Promise<RconProbe> {
   const t0 = Date.now();
-  const client = new RconClient(host, port, password);
-  try {
-    await client.connect(PROBE_MS);
-    await client.send('Info', PROBE_MS);
-    return { host, ok: true, latencyMs: Date.now() - t0, raw: null };
-  } catch (e) {
-    return { host, ok: false, latencyMs: Date.now() - t0, raw: describeError(e) };
-  } finally {
-    client.disconnect();
+  const perStrategy: RconAttempt[] = [];
+  let winner: RconStrategyName | undefined;
+
+  for (const strategy of RCON_STRATEGIES) {
+    try {
+      await strategy.exec(host, port, password, 'Info', PROBE_MS);
+      perStrategy.push({ strategy: strategy.name, error: 'OK' });
+      winner ??= strategy.name;
+    } catch (e) {
+      perStrategy.push({ strategy: strategy.name, error: describeError(e) });
+    }
   }
+
+  const ok = winner !== undefined;
+  return {
+    host,
+    ok,
+    latencyMs: Date.now() - t0,
+    raw: ok ? null : (perStrategy[0]?.error ?? 'no strategies ran'),
+    strategy: winner,
+    perStrategy,
+  };
 }
 
 async function probeRest(host: string, port: number, password: string): Promise<RestProbe> {
@@ -151,6 +173,10 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
     const { main, working } = pick(rconProbes);
     rcon.ok = Boolean(working);
     rcon.latencyMs = (working ?? main)!.latencyMs;
+    rcon.strategy = working?.strategy;
+    // Reported for whichever host got furthest, so a failure shows how each
+    // implementation reacted rather than one merged message.
+    rcon.attempts = (working ?? main)!.perStrategy;
 
     if (working && working.host !== configured) {
       rcon.hint = `RCON answered on ${working.host}:${inst.rcon_port} rather than the configured "${configured}". Palbox uses the working address automatically; set the RCON host to ${working.host} to skip the failed attempt.`;
