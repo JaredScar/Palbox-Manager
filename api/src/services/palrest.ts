@@ -30,8 +30,11 @@ function makeAuth(password: string): string {
 async function get<T>(host: string, port: number, password: string, path: string): Promise<T> {
   const url = `http://${host}:${port}/v1/api${path}`;
   const resp = await fetch(url, {
-    headers: { Authorization: makeAuth(password) },
-    signal: AbortSignal.timeout(4000),
+    headers: {
+      Authorization: makeAuth(password),
+      Accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(6000),
   });
   if (!resp.ok) throw new Error(`REST API ${resp.status}: ${await resp.text()}`);
   return resp.json() as T;
@@ -44,9 +47,10 @@ async function post<T>(host: string, port: number, password: string, path: strin
     headers: {
       Authorization: makeAuth(password),
       'Content-Type': 'application/json',
+      Accept: 'application/json',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(4000),
+    signal: AbortSignal.timeout(6000),
   });
   if (!resp.ok) throw new Error(`REST API ${resp.status}: ${await resp.text()}`);
   return resp.json() as T;

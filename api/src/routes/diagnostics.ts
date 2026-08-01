@@ -83,15 +83,17 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
       restResult.latencyMs = Date.now() - t0;
 
       if (msg.includes('ECONNREFUSED'))
-        restResult.error = `Connection refused on ${inst.rcon_host}:${restPort} — is RESTAPIEnabled=True and RESTAPIPort=${restPort} in PalWorldSettings.ini?`;
-      else if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('403'))
-        restResult.error = `Authentication failed — verify the Admin Password matches AdminPassword in PalWorldSettings.ini.`;
+        restResult.error = `Connection refused on ${inst.rcon_host}:${restPort} — is RESTAPIEnabled=True and RESTAPIPort=${restPort} in PalWorldSettings.ini? Server needs a full restart after enabling.`;
+      else if (msg.includes('401') || msg.includes('Unauthorized'))
+        restResult.error = `401 Unauthorized — the RCON/Admin password in Palbox does not match AdminPassword in PalWorldSettings.ini (case-sensitive).`;
+      else if (msg.includes('403') || msg.includes('Forbidden'))
+        restResult.error = `403 Forbidden — server rejected the credentials. Verify AdminPassword in PalWorldSettings.ini exactly matches the RCON password field.`;
       else if (msg.includes('ETIMEDOUT') || msg.includes('timed out') || msg.includes('abort'))
-        restResult.error = `Timed out on ${inst.rcon_host}:${restPort} — check your firewall and that REST API port ${restPort} is open.`;
+        restResult.error = `Timed out on ${inst.rcon_host}:${restPort} — port ${restPort} may be blocked by Windows Firewall or your cloud provider. Run: New-NetFirewallRule -DisplayName "Palworld REST API" -Direction Inbound -Protocol TCP -LocalPort ${restPort} -Action Allow`;
       else if (msg.includes('ENOTFOUND') || msg.includes('getaddrinfo'))
-        restResult.error = `Cannot resolve host "${inst.rcon_host}".`;
+        restResult.error = `Cannot resolve host "${inst.rcon_host}". If the panel runs on the same machine as the server, use 127.0.0.1 as the RCON host.`;
       else
-        restResult.error = msg;
+        restResult.error = `${msg} (URL: http://${inst.rcon_host}:${restPort}/v1/api/info)`;
     }
   }
 
