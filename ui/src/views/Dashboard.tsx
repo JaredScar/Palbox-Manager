@@ -67,6 +67,8 @@ export function Dashboard() {
   const [visibleWidgets, setVisibleWidgets] = useState<Set<WidgetId>>(loadWidgets);
   const [showCustomiser, setShowCustomiser] = useState(false);
   const [leaderboard, setLeaderboard] = useState<{ steam_id: string; name: string; playtime_s: number }[]>([]);
+  // Matches WARMUP_SECONDS in the diagnostics route.
+  const WARMUP_SECONDS = 120;
   const [diagResult, setDiagResult] = useState<DiagnosticsResponse | null>(null);
   const [diagDismissed, setDiagDismissed] = useState(false);
   const diagRanRef = useRef(false);
@@ -111,9 +113,20 @@ export function Dashboard() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Auto-run diagnostics once when we first see the server as online
+  // Auto-run diagnostics once the server has been up long enough to be ready
   useEffect(() => {
-    if (!api || !status || status.status !== 'online' || diagRanRef.current) return;
+    if (!api || !status || status.status !== 'online') return;
+
+    // Palworld loads the world before opening its RCON and REST listeners, so
+    // probing a freshly started server reports failures that resolve on their
+    // own. Wait it out, and re-arm after a restart so the next boot is checked.
+    if (status.uptime !== null && status.uptime < WARMUP_SECONDS) {
+      diagRanRef.current = false;
+      setDiagResult(null);
+      return;
+    }
+    if (diagRanRef.current) return;
+
     diagRanRef.current = true;
     api.diagnostics().then((r) => {
       // Only surface the banner when the REST API is down. RCON is legacy and

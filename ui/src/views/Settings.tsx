@@ -807,7 +807,7 @@ function ConnectionDiagnostics({ instanceId }: { instanceId: number }) {
 
       {result && (
         <>
-          <DiagRow label="REST API" note="preferred · port 8212" result={result.rest} />
+          <DiagRow label="REST API" note="preferred · port 8212" optional={result.warmingUp} result={result.rest} />
           <DiagRow
             label="RCON"
             note={result.rcon.strategy ? `legacy · via ${result.rcon.strategy}` : 'legacy · console only'}

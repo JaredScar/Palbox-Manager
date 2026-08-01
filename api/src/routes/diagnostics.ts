@@ -4,6 +4,7 @@ import { resolveInstance } from '../middleware/instance.js';
 import { RCON_STRATEGIES, type RconStrategyName, type RconAttempt } from '../lib/rcon.js';
 import { restGetInfo } from '../services/palrest.js';
 import { candidateHosts, restPortOf } from '../services/connection.js';
+import { getStatus } from '../services/palserver.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -26,7 +27,18 @@ export interface DiagnosticsResponse {
   summary: string;
   /** True when something needs the user's attention. RCON alone failing does not. */
   degraded: boolean;
+  /** Server process is up but too young to have opened its listeners yet. */
+  warmingUp: boolean;
+  uptimeSeconds: number | null;
 }
+
+/**
+ * Palworld opens its RCON and REST listeners well after the process appears -
+ * it loads the world first, which on a populated save takes a while. Probing
+ * before then reports failures that fix themselves, so results are treated as
+ * provisional until the process has been up this long.
+ */
+const WARMUP_SECONDS = 120;
 
 // Probe budget. Every host is probed concurrently, so the whole request is
 // bounded by the slowest single probe rather than the sum of all of them.
@@ -143,6 +155,10 @@ function attemptBreakdown(probes: Probe[], port: number): string {
 
 router.post('/', requirePermission('server.view'), async (req, res) => {
   const inst = req.instance!;
+  const { status: srvStatus, uptime } = await getStatus(inst).catch(
+    () => ({ status: 'offline' as const, uptime: null }),
+  );
+  const warmingUp = srvStatus !== 'offline' && (uptime === null || uptime < WARMUP_SECONDS);
   const restPort = restPortOf(inst);
   const pass = inst.rcon_password;
   const configured = inst.rcon_host;
@@ -219,6 +235,9 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
     summary = rest.hint || rcon.hint
       ? 'The REST API and RCON are both working, using an address other than the one configured.'
       : 'The REST API and RCON are both connected and working.';
+  } else if (warmingUp) {
+    const secs = uptime === null ? null : Math.round(uptime);
+    summary = `The server is still starting up${secs === null ? '' : ` (${secs}s in)`}, so its listeners may not be open yet. Palworld loads the world before it accepts RCON and REST connections; this usually settles within a couple of minutes. Re-run the test if it persists.`;
   } else if (rest.ok) {
     summary = 'The REST API is connected and working. RCON did not respond, which is fine — Palbox uses the REST API for everything except free-form console commands.';
   } else if (rcon.ok) {
@@ -227,7 +246,16 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
     summary = 'Neither the REST API nor RCON could connect. Check your server settings and firewall.';
   }
 
-  res.json({ rcon, rest, summary, degraded: !rest.ok } satisfies DiagnosticsResponse);
+  res.json({
+    rcon,
+    rest,
+    summary,
+    // A server that is still booting is not misconfigured, so it must not
+    // raise the warning banner.
+    degraded: !rest.ok && !warmingUp,
+    warmingUp,
+    uptimeSeconds: uptime,
+  } satisfies DiagnosticsResponse);
 });
 
 export default router;

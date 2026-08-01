@@ -290,6 +290,11 @@ function applySchema(db: Database.Database): void {
   addColIfMissing('players', 'ban_reason',  "TEXT");
   addColIfMissing('players', 'ban_expires', "INTEGER");
   addColIfMissing('users', 'role_id', "INTEGER REFERENCES roles(id) ON DELETE SET NULL");
+  // Mods are discovered on disk, not just installed through the panel, so a
+  // row now records where it came from and what kind of mod it is.
+  addColIfMissing('mods', 'kind',      "TEXT NOT NULL DEFAULT 'ue4ss'");
+  addColIfMissing('mods', 'builtin',   'INTEGER NOT NULL DEFAULT 0');
+  addColIfMissing('mods', 'rel_path',  "TEXT NOT NULL DEFAULT ''");
 
   // ── Seed built-in roles ───────────────────────────────────────────────────
   for (const roleName of ['owner', 'operator', 'viewer'] as const) {

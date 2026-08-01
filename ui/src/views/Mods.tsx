@@ -80,10 +80,26 @@ export function Mods() {
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={4} className="text-center text-fog px-4 py-8">Loading…</td></tr>}
-            {!loading && mods.length === 0 && <tr><td colSpan={4} className="text-center text-fog px-4 py-8">No mods installed — upload a .zip to get started.</td></tr>}
+            {!loading && mods.length === 0 && (
+              <tr><td colSpan={4} className="text-center text-fog px-4 py-8">
+                {active?.mods_dir
+                  ? <>Nothing found in <span className="font-mono text-[12px]">{active.mods_dir}</span> or the pak folders beside it. Upload a .zip, or install mods there and they will appear here.</>
+                  : <>No mods directory configured. Set it in Settings → Server instances, usually <span className="font-mono text-[12px]">Pal\Binaries\Win64\Mods</span>.</>}
+              </td></tr>
+            )}
             {mods.map((mod) => (
               <tr key={mod.id} className="hover:bg-white/[0.02]">
-                <td className={tdCls}>{mod.name}</td>
+                <td className={tdCls}>
+                  <div className="flex items-center gap-2">
+                    <span className={mod.builtin ? 'text-fog' : undefined}>{mod.name}</span>
+                    <span className="text-[10px] uppercase tracking-wider text-fog/60 border border-line rounded px-1.5 py-0.5">
+                      {mod.kind === 'pak' ? 'pak' : 'ue4ss'}
+                    </span>
+                    {mod.builtin > 0 && (
+                      <span className="text-[10px] uppercase tracking-wider text-fog/50">built-in</span>
+                    )}
+                  </div>
+                </td>
                 <td className={`${tdCls} font-mono text-fog`}>{mod.version}</td>
                 <td className={tdCls}>
                   <button onClick={() => handleToggle(mod)}>
@@ -92,9 +108,11 @@ export function Mods() {
                 </td>
                 <td className={tdCls}>
                   <div className="flex justify-end">
-                    <IconButton label="Remove" onClick={() => handleRemove(mod)}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
-                    </IconButton>
+                    {mod.builtin === 0 && (
+                      <IconButton label="Remove" onClick={() => handleRemove(mod)}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+                      </IconButton>
+                    )}
                   </div>
                 </td>
               </tr>

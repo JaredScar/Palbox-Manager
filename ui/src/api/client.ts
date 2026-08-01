@@ -363,6 +363,11 @@ export interface Mod {
   enabled: number;
   build_id: string;
   installed_at: number;
+  /** UE4SS script mod, or a .pak under Content\Paks. */
+  kind: 'ue4ss' | 'pak';
+  /** Ships with UE4SS rather than installed by the user. */
+  builtin: number;
+  rel_path: string;
 }
 
 export interface RconMacro {
@@ -602,4 +607,7 @@ export interface DiagnosticsResponse {
   summary: string;
   /** True when something needs attention. RCON alone failing does not. */
   degraded: boolean;
+  /** Server process is up but too young to have opened its listeners yet. */
+  warmingUp: boolean;
+  uptimeSeconds: number | null;
 }
