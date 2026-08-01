@@ -161,3 +161,15 @@ export function stopLogTail(instanceId: number): void {
   const t = tailIntervals.get(instanceId);
   if (t) { clearInterval(t); tailIntervals.delete(instanceId); }
 }
+
+/**
+ * Whether the poller is running and how much it has seen. An empty console is
+ * otherwise indistinguishable from a quiet server, so the UI needs this to say
+ * which one it is.
+ */
+export function getTailStatus(instanceId: number): { tailing: boolean; buffered: number } {
+  return {
+    tailing: tailIntervals.has(instanceId),
+    buffered: logBuffers.get(instanceId)?.length ?? 0,
+  };
+}

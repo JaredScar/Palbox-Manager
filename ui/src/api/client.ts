@@ -168,6 +168,7 @@ export function makeApi(instanceId: number) {
     chatMessages: (limit = 100) => request<ChatMessage[]>(p(`/chat?limit=${limit}`)),
     logLines: (tail = 200, search = '') =>
       request<{ lines: string[] }>(p(`/chat/log?tail=${tail}&search=${encodeURIComponent(search)}`)),
+    logStatus: () => request<LogStatus>(p('/chat/log-status')),
 
     // Backup schedule
     getBackupSchedule: () => request<BackupScheduleConfig>(p('/backups/schedule')),
@@ -581,6 +582,18 @@ export interface DiagResult {
   strategy?:  string;
   /** Outcome per RCON implementation, for pinning down protocol quirks. */
   attempts?:  { strategy: string; error: string }[];
+}
+
+export interface LogStatus {
+  configured: boolean;
+  path:       string;
+  exists:     boolean;
+  sizeBytes:  number | null;
+  modifiedAt: number | null;
+  tailing:    boolean;
+  buffered:   number;
+  /** Set when the live stream cannot produce output; explains which fix applies. */
+  reason:     string | null;
 }
 
 export interface DiagnosticsResponse {

@@ -4,7 +4,7 @@ import { usePermission } from '../hooks/usePermission';
 import { Button } from '../components/ui/Button';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { cn } from '../lib/cn';
-import type { RconMacro } from '../api/client';
+import type { RconMacro, LogStatus } from '../api/client';
 
 const RCON_COMMANDS = [
   'ShowPlayers', 'KickPlayer', 'BanPlayer', 'UnBanPlayer',
@@ -57,6 +57,8 @@ export function Console() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logSearch, setLogSearch] = useState('');
   const [logLoading, setLogLoading] = useState(false);
+  const [wsState, setWsState] = useState<'connecting' | 'live' | 'reconnecting'>('connecting');
+  const [logStatus, setLogStatus] = useState<LogStatus | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -67,26 +69,76 @@ export function Console() {
   }
   useEffect(() => { loadMacros(); }, [api]);
 
-  // WebSocket log tail
+  // WebSocket log tail.
+  //
+  // Reconnects on drop. Without this a single blip - the Palbox service
+  // restarting, a laptop sleeping, a proxy idle timeout - left the console
+  // silently dead until the page was reloaded, which reads as "the console
+  // stopped working" rather than "the socket closed".
   useEffect(() => {
-    wsRef.current?.close();
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws?instance=${active?.id ?? 1}`);
-    wsRef.current = ws;
-    ws.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data as string);
-        if (data.type === 'log') {
-          const line = data.line as string;
-          setLines((prev) => [
-            ...prev.slice(-500),
-            { id: lineId++, text: line, ts: new Date().toTimeString().slice(0, 8), level: parseLevel(line) },
-          ]);
-        }
-      } catch {}
+    let closed = false;
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout>;
+
+    const connect = () => {
+      if (closed) return;
+      setWsState(attempt === 0 ? 'connecting' : 'reconnecting');
+
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${window.location.host}/ws?instance=${active?.id ?? 1}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        attempt = 0;
+        setWsState('live');
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data as string);
+          if (data.type === 'log') {
+            const line = data.line as string;
+            setLines((prev) => [
+              ...prev.slice(-500),
+              { id: lineId++, text: line, ts: new Date().toTimeString().slice(0, 8), level: parseLevel(line) },
+            ]);
+          }
+        } catch { /* not a frame we care about */ }
+      };
+
+      ws.onclose = () => {
+        if (closed) return;
+        setWsState('reconnecting');
+        // Back off to a 15s ceiling so a server that stays down does not get
+        // hammered, while a brief blip still recovers almost immediately.
+        const delay = Math.min(1000 * 2 ** attempt++, 15_000);
+        retryTimer = setTimeout(connect, delay);
+      };
+
+      ws.onerror = () => ws.close();
     };
-    return () => ws.close();
+
+    connect();
+    return () => {
+      closed = true;
+      clearTimeout(retryTimer);
+      wsRef.current?.close();
+    };
   }, [active?.id]);
+
+  // Explain a silent stream rather than showing "waiting" forever
+  useEffect(() => {
+    if (!api) return;
+    let cancelled = false;
+    const check = () => {
+      api.logStatus()
+        .then((s) => { if (!cancelled) setLogStatus(s); })
+        .catch(() => { /* endpoint missing on an older server */ });
+    };
+    check();
+    const id = setInterval(check, 20_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [api]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [lines]);
 
@@ -204,6 +256,18 @@ export function Console() {
       accentVar="var(--lime)"
       actions={
         <>
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-panel-raised border border-line"
+            title={
+              wsState === 'live'
+                ? 'Connected to the log stream'
+                : 'Not connected — retrying automatically'
+            }
+          >
+            <span className={cn('w-1.5 h-1.5 rounded-full',
+              wsState === 'live' ? 'bg-lime' : 'bg-gold animate-pulse')} />
+            <span className="text-[11px] text-fog capitalize">{wsState}</span>
+          </div>
           <div className="flex gap-0.5 bg-panel-raised border border-line rounded-lg p-0.5">
             {(['live', 'log'] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)}
@@ -224,7 +288,26 @@ export function Console() {
             <>
               <div className="bg-panel border border-line rounded-2xl flex flex-col" style={{ height: 'calc(100vh - 340px)', minHeight: 280 }}>
                 <div className="flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed">
-                  {lines.length === 0 && <div className="text-fog/50">Waiting for log output…</div>}
+                  {lines.length === 0 && (
+                    <div className="text-fog/50">
+                      {logStatus?.reason ? (
+                        <div className="font-sans space-y-2 max-w-xl">
+                          <div className="text-bone font-medium">The live stream has nothing to show</div>
+                          <p className="leading-relaxed">{logStatus.reason}</p>
+                          {logStatus.configured && (
+                            <p className="text-[11px] font-mono text-fog/60 break-all">{logStatus.path}</p>
+                          )}
+                          {!logStatus.configured && (
+                            <a href="/settings#instances" className="inline-block text-aqua hover:underline text-[12px]">
+                              Open instance settings
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        'Waiting for log output…'
+                      )}
+                    </div>
+                  )}
                   {lines.map((l) => (
                     <div key={l.id} className="flex gap-3 hover:bg-white/[0.02] px-1 rounded">
                       <span className="text-fog/50 shrink-0 w-16">{l.ts}</span>
