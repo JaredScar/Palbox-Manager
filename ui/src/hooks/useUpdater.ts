@@ -64,10 +64,11 @@ export function useUpdater(): UpdateState {
     setPhase('applying');
     try {
       const res = await fetch('/api/app-version/update', { method: 'POST', credentials: 'include' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
-        throw new Error(body.error ?? res.statusText);
-      }
+      const body = await res.json().catch(() => ({ error: res.statusText })) as {
+        error?: string; message?: string; logFile?: string;
+      };
+      if (!res.ok) throw new Error(body.error ?? res.statusText);
+      // Success — panel will go offline shortly; nothing more to do on the client
     } catch (e) {
       setError((e as Error).message);
       setPhase('error');
