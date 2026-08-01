@@ -17,14 +17,24 @@ import { log } from '../lib/logger.js';
 const router = Router();
 
 /**
- * Ordered by preference. The first is 2048x2048, and a square source matters:
- * the view maps world coordinates onto the image assuming equal extents on
- * both axes, so a non-square one would skew every player position.
+ * Ordered by preference.
  *
- * These are resolved live rather than hardcoded as thumbnail paths, because
- * the previously hardcoded URLs all became 404s and left the map blank.
+ * The first is the game's own 8192x8192 t_worldmap texture, and it is not
+ * interchangeable with the others: the projection that places players is an
+ * affine transform calibrated against this exact framing. A wiki render of the
+ * island crops and scales differently, so reusing those constants against one
+ * puts every marker in the wrong place - which is exactly what happened while
+ * a wiki image was being served.
+ *
+ * The fallbacks therefore only keep the map from being blank. The view is told
+ * which source it got and stops claiming positions are accurate when the
+ * calibrated texture is unavailable.
  */
+export const CALIBRATED_SOURCE =
+  'https://raw.githubusercontent.com/amantu-qbit/palworld-server-manager/1c1cee0783a2154d7df3c7912be28daf599d19bf/public/palworld-map.webp';
+
 const SOURCES = [
+  CALIBRATED_SOURCE,
   'https://palworld.wiki.gg/images/Palpagos_Islands_World_Map.webp',
   'https://palworld.wiki.gg/images/Palpagos_Islands_Square.png',
 ];
@@ -33,13 +43,19 @@ const CACHE_DIR = process.env.PALBOX_DATA_DIR ?? path.join(os.tmpdir(), 'palbox'
 const CACHE_FILE = path.join(CACHE_DIR, 'palpagos-map');
 const CACHE_META = path.join(CACHE_DIR, 'palpagos-map.json');
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const RETRY_AGE_MS = 24 * 60 * 60 * 1000;
 
-interface Meta { contentType: string; fetchedAt: number }
+interface Meta { contentType: string; fetchedAt: number; source?: string }
 
 function readCache(): { body: Buffer; meta: Meta } | null {
   try {
     const meta = JSON.parse(fs.readFileSync(CACHE_META, 'utf8')) as Meta;
-    if (Date.now() - meta.fetchedAt > MAX_AGE_MS) return null;
+    // A cache from before the calibrated texture existed, or from a fallback
+    // source, is retried within a day rather than held for a month - otherwise
+    // an install that cached a wiki image would keep mispositioning players
+    // long after the right one became reachable.
+    const maxAge = meta.source === CALIBRATED_SOURCE ? MAX_AGE_MS : RETRY_AGE_MS;
+    if (Date.now() - meta.fetchedAt > maxAge) return null;
     return { body: fs.readFileSync(CACHE_FILE), meta };
   } catch {
     return null;
@@ -60,6 +76,7 @@ async function download(): Promise<{ body: Buffer; meta: Meta } | null> {
       const meta: Meta = {
         contentType: resp.headers.get('content-type') ?? 'image/png',
         fetchedAt: Date.now(),
+        source: url,
       };
       try {
         fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -83,7 +100,20 @@ router.get('/', requireAuth, async (_req, res) => {
   }
   res.setHeader('Content-Type', cached.meta.contentType);
   res.setHeader('Cache-Control', 'public, max-age=86400');
+  // Player positions are only trustworthy on the calibrated texture, so the
+  // view needs to know which image it received.
+  res.setHeader('X-Palbox-Map-Calibrated', String(cached.meta.source === CALIBRATED_SOURCE));
   res.send(cached.body);
+});
+
+/** Whether the served image is the one the projection was calibrated against. */
+router.get('/info', requireAuth, async (_req, res) => {
+  const cached = readCache() ?? (await download());
+  res.json({
+    available: cached !== null,
+    calibrated: cached?.meta.source === CALIBRATED_SOURCE,
+    source: cached?.meta.source ?? null,
+  });
 });
 
 export default router;

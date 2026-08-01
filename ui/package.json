@@ -1,12 +1,13 @@
 {
   "name": "@palbox/ui",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:map": "node src/lib/mapProject.test.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

@@ -4,25 +4,13 @@ import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { PanelSection } from '../components/ui/PanelSection';
 import { cn } from '../lib/cn';
 import type { PalRestPlayer, ServerStatus } from '../api/client';
-
-// ── Palworld world coordinate bounds (Unreal Engine units) ───────────────────
-// Calibrated from community data for the Palpagos Island map.
-const WORLD_MIN_X = -596_000;
-const WORLD_MAX_X =  596_000;
-const WORLD_MIN_Y = -596_000;
-const WORLD_MAX_Y =  596_000;
+import { worldToUv, worldToGameCoords } from '../lib/mapProject';
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 
-function worldToPercent(x: number, y: number): { px: number; py: number } {
-  const px = ((x - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X)) * 100;
-  // Y axis is inverted in UE vs screen
-  const py = ((WORLD_MAX_Y - y) / (WORLD_MAX_Y - WORLD_MIN_Y)) * 100;
-  return { px, py };
-}
-
-const fmtPing = (p: number) => (p < 0 ? '-' : `${p} ms`);
+// The REST API reports ping as a float with full double precision.
+const fmtPing = (p: number) => (p < 0 ? '-' : `${Math.round(p)} ms`);
 
 function pingColor(p: number) {
   if (p < 0)   return '#a79fc7';
@@ -48,14 +36,14 @@ function PlayerDot({
   onEnter: () => void;
   onLeave: () => void;
 }) {
-  const { px, py } = worldToPercent(player.location_x, player.location_y);
+  const { u, v } = worldToUv(player.location_x, player.location_y);
 
   return (
     <div
       className="absolute"
       style={{
-        left: `${px}%`,
-        top: `${py}%`,
+        left: `${u * 100}%`,
+        top: `${v * 100}%`,
         transform: `translate(-50%, -50%) scale(${1 / scale})`,
         zIndex: hovered ? 20 : 10,
       }}
@@ -80,8 +68,13 @@ function PlayerDot({
           <div className="text-[11px] text-fog">
             Ping: <span style={{ color: pingColor(player.ping) }}>{fmtPing(player.ping)}</span>
           </div>
+          {/* The in-game readout, so it can be checked against the map in
+              game rather than against raw Unreal units. */}
           <div className="text-[10px] text-fog/50 font-mono mt-0.5">
-            {Math.round(player.location_x)}, {Math.round(player.location_y)}
+            {(() => {
+              const g = worldToGameCoords(player.location_x, player.location_y);
+              return `${g.x}, ${g.y}`;
+            })()}
           </div>
         </div>
       )}
@@ -98,6 +91,14 @@ export function WorldMap() {
   const [loading,   setLoading]   = useState(true);
   const [hovered,   setHovered]   = useState<string | null>(null);
   const [mapFailed, setMapFailed] = useState(false);
+  const [mapInfo, setMapInfo] = useState<{ available: boolean; calibrated: boolean } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/world-map-image/info', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((d) => setMapInfo(d as { available: boolean; calibrated: boolean }))
+      .catch(() => { /* older server without this endpoint */ });
+  }, []);
 
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -209,6 +210,14 @@ export function WorldMap() {
         title="Palpagos Island"
         description="Live player positions from the Palworld REST API. Scroll to zoom, drag to pan."
       >
+        {/* Positions are only accurate on the game's own map texture, because
+            the projection is an affine transform calibrated to its framing. */}
+        {mapInfo && mapInfo.available && !mapInfo.calibrated && (
+          <div className="mb-3 text-[12px] rounded-lg px-3 py-2 bg-amber-500/10 text-amber-300 border border-amber-500/30">
+            Showing a fallback map image because the in-game map texture could not be downloaded.
+            Player markers will be approximate until it is reachable again.
+          </div>
+        )}
         {restError ? (
           <div className="rounded-xl bg-panel-raised border border-line p-6 text-center space-y-3">
             <div className="text-[14px] font-semibold text-bone">REST API not available</div>
@@ -238,10 +247,13 @@ export function WorldMap() {
             <div
               ref={viewportRef}
               className={cn(
-                'relative w-full rounded-xl overflow-hidden border border-line bg-[#060d18] touch-none select-none',
+                'relative w-full mx-auto rounded-xl overflow-hidden border border-line bg-[#060d18] touch-none select-none',
                 canPan ? (dragRef.current ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default',
               )}
-              style={{ aspectRatio: '1 / 1', maxHeight: '70vh' }}
+              // Capped on width rather than height so the box stays exactly
+              // square. Markers are positioned as a percentage of it, so any
+              // deviation from the texture's own square aspect shifts them.
+              style={{ aspectRatio: '1 / 1', maxWidth: '70vh' }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -264,7 +276,10 @@ export function WorldMap() {
                   <img
                     src="/api/world-map-image"
                     alt="Palpagos Island"
-                    className="absolute inset-0 w-full h-full object-cover"
+                    // "fill" not "cover": cover crops the texture, and the
+                    // projection assumes the whole image is visible and maps
+                    // linearly onto this box.
+                    className="absolute inset-0 w-full h-full object-fill"
                     draggable={false}
                     onError={() => setMapFailed(true)}
                   />
