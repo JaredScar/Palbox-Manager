@@ -1,203 +1,328 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useInstance } from '../context/InstanceContext';
-import { ServerStatus } from '../api/client';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
+import { PanelSection } from '../components/ui/PanelSection';
 import { cn } from '../lib/cn';
+import type { PalRestPlayer, ServerStatus } from '../api/client';
 
-function fmtUptime(sec: number | null): string {
-  if (!sec) return '–';
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (h > 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+// ── Palworld world coordinate bounds (Unreal Engine units) ───────────────────
+// Calibrated from community data for the Palpagos Island map.
+const WORLD_MIN_X = -596_000;
+const WORLD_MAX_X =  596_000;
+const WORLD_MIN_Y = -596_000;
+const WORLD_MAX_Y =  596_000;
+
+function worldToPercent(x: number, y: number): { px: number; py: number } {
+  const px = ((x - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X)) * 100;
+  // Y axis is inverted in UE vs screen
+  const py = ((WORLD_MAX_Y - y) / (WORLD_MAX_Y - WORLD_MIN_Y)) * 100;
+  return { px, py };
 }
 
-// Palworld biomes / regions (approximate map regions for visual decoration)
-const REGIONS = [
-  { name: 'Windswept Hills',    x: 18, y: 12, w: 22, h: 18, color: '#3fd8b4' },
-  { name: 'Marsh Island',       x: 60, y: 8,  w: 18, h: 16, color: '#7ce666' },
-  { name: 'Sea Breeze Archipelago', x: 72, y: 30, w: 20, h: 20, color: '#2fd9e8' },
-  { name: 'Bamboo Groves',      x: 48, y: 20, w: 16, h: 22, color: '#ffd447' },
-  { name: 'Mount Frostpeak',    x: 25, y: 55, w: 20, h: 22, color: '#b27cf2' },
-  { name: 'Desert Scorched',    x: 62, y: 60, w: 18, h: 20, color: '#ff9d3d' },
-  { name: 'Volcanic Region',    x: 12, y: 70, w: 15, h: 18, color: '#ff5d73' },
-  { name: 'Ancient Ruins',      x: 42, y: 62, w: 14, h: 14, color: '#a79fc7' },
-  { name: 'Deep Forest',        x: 76, y: 68, w: 16, h: 18, color: '#3fd8b4' },
-];
+function fmtPing(p: number) { return p < 0 ? '–' : `${p} ms`; }
 
-export function WorldMap() {
-  const { api, active } = useInstance();
-  const [status, setStatus] = useState<ServerStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
+// Colour by ping quality
+function pingColor(p: number) {
+  if (p < 0)   return '#a79fc7';
+  if (p < 60)  return '#7ce666';
+  if (p < 120) return '#ffd447';
+  return '#ff5d73';
+}
 
-  useEffect(() => {
-    let id: ReturnType<typeof setInterval>;
-    async function load() {
-      if (!api) return;
-      try { setStatus(await api.status()); } catch { /* ignore */ }
-      setLoading(false);
-    }
-    load();
-    id = setInterval(load, 15_000);
-    return () => clearInterval(id);
-  }, [api]);
-
-  // Distribute players across regions for visual flair
-  const playerCount = status?.players?.length ?? 0;
-  const regionPlayers = REGIONS.map((r, i) => ({
-    ...r,
-    players: i < playerCount ? 1 : 0,
-  }));
-
-  const isOnline = status?.status === 'online';
+// ── Player dot overlay ───────────────────────────────────────────────────────
+function PlayerDot({
+  player,
+  hovered,
+  onEnter,
+  onLeave,
+}: {
+  player: PalRestPlayer;
+  hovered: boolean;
+  onEnter: () => void;
+  onLeave: () => void;
+}) {
+  const { px, py } = worldToPercent(player.location_x, player.location_y);
 
   return (
-    <ViewWrapper
-      eyebrow="Palworld"
-      title="World Map"
-      description="Live overview of your Palworld server — regions light up as players explore."
-      accentVar="#22d3ee"
+    <div
+      className="absolute group"
+      style={{
+        left:      `${px}%`,
+        top:       `${py}%`,
+        transform: 'translate(-50%, -50%)',
+        zIndex:    hovered ? 20 : 10,
+      }}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
     >
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {[
-          { label: 'Status',   val: status?.status ?? '–',           color: isOnline ? 'text-lime' : 'text-rust' },
-          { label: 'Players',  val: `${playerCount} online`, color: 'text-aqua' },
-          { label: 'Uptime',   val: fmtUptime(status?.uptime ?? null), color: 'text-violet' },
-        ].map((s) => (
-          <div key={s.label} className="bg-panel border border-line rounded-2xl p-4 text-center">
-            <div className="text-[10.5px] uppercase tracking-widest text-fog mb-1.5">{s.label}</div>
-            <div className={cn('font-mono text-[18px] font-semibold capitalize', s.color)}>{s.val}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Map */}
-      <div className="relative rounded-2xl overflow-hidden border border-line bg-[#0a0f1a]" style={{ paddingBottom: '56%' }}>
-        {/* Ocean / background */}
-        <svg
-          className="absolute inset-0 w-full h-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="xMidYMid slice"
+      {/* Pulse ring */}
+      <div
+        className={cn(
+          'absolute inset-0 rounded-full animate-ping',
+          hovered ? 'opacity-60' : 'opacity-30',
+        )}
+        style={{ background: '#2fd9e8', transform: 'scale(2)' }}
+      />
+      {/* Dot */}
+      <div
+        className="relative w-3 h-3 rounded-full border-2 border-void cursor-pointer"
+        style={{ background: '#2fd9e8', boxShadow: '0 0 6px #2fd9e8aa' }}
+      />
+      {/* Tooltip */}
+      {hovered && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-max max-w-[160px] bg-panel border border-line rounded-xl px-3 py-2 shadow-xl pointer-events-none"
+          style={{ zIndex: 30 }}
         >
-          {/* Ocean */}
-          <rect width="100" height="100" fill="#050c1a" />
-
-          {/* Grid lines */}
-          {Array.from({ length: 10 }, (_, i) => (
-            <g key={i} opacity={0.06}>
-              <line x1={i * 10} y1="0" x2={i * 10} y2="100" stroke="#2fd9e8" strokeWidth="0.2" />
-              <line x1="0" y1={i * 10} x2="100" y2={i * 10} stroke="#2fd9e8" strokeWidth="0.2" />
-            </g>
-          ))}
-
-          {/* Landmasses (stylised continent outline) */}
-          <ellipse cx="50" cy="50" rx="42" ry="38" fill="#0d1f1a" stroke="#1a3030" strokeWidth="0.5" opacity={0.7} />
-          <ellipse cx="52" cy="48" rx="34" ry="28" fill="#101f18" stroke="#1a3020" strokeWidth="0.3" opacity={0.8} />
-
-          {/* Biome regions */}
-          {regionPlayers.map((r) => {
-            const hovered = hoveredRegion === r.name;
-            const hasPl   = r.players > 0;
-            return (
-              <g key={r.name}
-                onMouseEnter={() => setHoveredRegion(r.name)}
-                onMouseLeave={() => setHoveredRegion(null)}
-                style={{ cursor: 'default' }}>
-                <rect
-                  x={r.x} y={r.y} width={r.w} height={r.h}
-                  rx="2" ry="2"
-                  fill={r.color}
-                  fillOpacity={hovered ? 0.35 : hasPl ? 0.25 : 0.12}
-                  stroke={r.color}
-                  strokeWidth="0.4"
-                  strokeOpacity={hovered ? 0.9 : hasPl ? 0.7 : 0.3}
-                  style={{ transition: 'all 0.2s' }}
-                />
-                {/* Player dot if active */}
-                {hasPl && (
-                  <circle
-                    cx={r.x + r.w / 2} cy={r.y + r.h / 2}
-                    r="1.5"
-                    fill="white"
-                    opacity={0.9}
-                  >
-                    <animate attributeName="r" values="1.5;2.2;1.5" dur="2s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.9;0.5;0.9" dur="2s" repeatCount="indefinite" />
-                  </circle>
-                )}
-              </g>
-            );
-          })}
-
-          {/* Server marker (centre of map) */}
-          <g>
-            <circle cx="50" cy="50" r="3" fill={isOnline ? '#7ce666' : '#ff5d73'} opacity={0.9}>
-              <animate attributeName="r" values="3;4.5;3" dur="3s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.9;0.4;0.9" dur="3s" repeatCount="indefinite" />
-            </circle>
-            <text x="50" y="57" textAnchor="middle" fontSize="3" fill="white" opacity={0.7}>
-              {active?.name ?? 'Server'}
-            </text>
-          </g>
-
-          {/* Compass */}
-          <g transform="translate(93,7)">
-            <text fontSize="3" fill="#a79fc7" textAnchor="middle" y="0">N</text>
-            <text fontSize="2.5" fill="#a79fc7" textAnchor="middle" y="5">S</text>
-            <text fontSize="2.5" fill="#a79fc7" textAnchor="start"  x="3" y="2.5">E</text>
-            <text fontSize="2.5" fill="#a79fc7" textAnchor="end"    x="-3" y="2.5">W</text>
-          </g>
-        </svg>
-
-        {/* Loading overlay */}
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="text-fog font-mono text-[13px]">Loading…</div>
+          <div className="text-[13px] font-semibold text-bone truncate">{player.name}</div>
+          <div className="text-[11px] text-fog mt-0.5">Lv {player.level}</div>
+          <div className="text-[11px] text-fog">
+            Ping: <span style={{ color: pingColor(player.ping) }}>{fmtPing(player.ping)}</span>
           </div>
-        )}
-
-        {/* Region tooltip */}
-        {hoveredRegion && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-panel border border-line px-4 py-2 rounded-xl text-[12px] font-medium pointer-events-none">
-            {hoveredRegion}
-          </div>
-        )}
-      </div>
-
-      {/* Region legend */}
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {REGIONS.map((r) => (
-          <div key={r.name}
-            className={cn('flex items-center gap-2 text-[11.5px] py-1.5 px-3 rounded-lg transition-colors',
-              hoveredRegion === r.name ? 'bg-panel-raised' : '')}
-            onMouseEnter={() => setHoveredRegion(r.name)}
-            onMouseLeave={() => setHoveredRegion(null)}>
-            <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: r.color, opacity: 0.7 }} />
-            <span className="text-fog truncate">{r.name}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Player list */}
-      {isOnline && status!.players && status!.players.length > 0 && (
-        <div className="mt-4 bg-panel border border-line rounded-2xl p-4">
-          <div className="text-[11px] uppercase tracking-widest text-fog mb-3">Online now</div>
-          <div className="flex flex-wrap gap-2">
-            {status!.players.map((p: { name: string; steamId?: string }, i: number) => (
-              <div key={i} className="flex items-center gap-1.5 text-[12.5px] bg-panel-raised rounded-lg px-3 py-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-lime" />
-                {p.name}
-              </div>
-            ))}
+          <div className="text-[10px] text-fog/50 font-mono mt-0.5">
+            {Math.round(player.location_x)}, {Math.round(player.location_y)}
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
-      <div className="mt-3 text-[11px] text-fog/40 font-mono text-center">
-        Map regions are approximate — exact player coordinates are not available via standard game APIs.
-        Refreshes every 15s.
+export function WorldMap() {
+  const { api, active } = useInstance();
+
+  const [status,     setStatus]     = useState<ServerStatus | null>(null);
+  const [players,    setPlayers]    = useState<PalRestPlayer[]>([]);
+  const [restError,  setRestError]  = useState(false);
+  const [loading,    setLoading]    = useState(true);
+  const [hovered,    setHovered]    = useState<string | null>(null);
+  const [tab,        setTab]        = useState<'map' | 'reference'>('map');
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const load = useCallback(async () => {
+    if (!api) return;
+    try { setStatus(await api.status()); } catch {}
+    try {
+      const pls = await api.palrestPlayers();
+      setPlayers(pls);
+      setRestError(false);
+    } catch {
+      setRestError(true);
+      setPlayers([]);
+    }
+    setLoading(false);
+  }, [api]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 15_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const isOnline   = status?.status === 'online';
+  const playerCount = players.length || (status?.players?.length ?? 0);
+
+  // Fallback player list from server status if REST API is unavailable
+  const fallbackPlayers = status?.players as { name: string; steamId?: string }[] | undefined;
+
+  return (
+    <ViewWrapper eyebrow="Palworld" title="World Map" accentVar="#22d3ee">
+      {/* Stats bar */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        {[
+          { label: 'Status',    val: status?.status ?? '–',         color: isOnline ? 'text-[#7ce666]' : 'text-[#ff5d73]' },
+          { label: 'Players',   val: `${playerCount} online`,       color: 'text-[#2fd9e8]' },
+          { label: 'In-world',  val: restError ? 'REST API off' : `${players.length} located`, color: restError ? 'text-[#a79fc7]' : 'text-[#7ce666]' },
+        ].map((s) => (
+          <div key={s.label} className="bg-panel border border-line rounded-2xl p-4 text-center">
+            <div className="text-[10.5px] uppercase tracking-widest text-fog mb-1.5">{s.label}</div>
+            <div className={cn('font-mono text-[16px] font-semibold capitalize', s.color)}>{s.val}</div>
+          </div>
+        ))}
       </div>
+
+      {/* Tab selector */}
+      <div className="flex gap-1 mb-4 bg-panel border border-line rounded-xl p-1 w-fit">
+        {(['map', 'reference'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn(
+              'px-4 py-1.5 rounded-lg text-[12.5px] font-medium transition-all',
+              tab === t
+                ? 'bg-panel-raised text-bone border border-line'
+                : 'text-fog hover:text-bone',
+            )}
+          >
+            {t === 'map' ? '📍 Player Positions' : '🗺️ Interactive Map'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Player Position Map ───────────────────────────────────────────── */}
+      {tab === 'map' && (
+        <PanelSection
+          title="Player Positions"
+          description="Live player locations from the Palworld REST API. Requires REST API enabled on your server (RESTAPIEnabled=true in PalWorldSettings.ini, default port 8212)."
+        >
+          {restError ? (
+            <div className="rounded-xl bg-panel-raised border border-line p-6 text-center space-y-3">
+              <div className="text-[32px]">🗺️</div>
+              <div className="text-[14px] font-semibold text-bone">REST API not available</div>
+              <div className="text-[12.5px] text-fog max-w-sm mx-auto">
+                Enable the Palworld REST API to see live player positions on the map.
+                Add <code className="bg-panel border border-line px-1.5 py-0.5 rounded text-[11px] font-mono">RESTAPIEnabled=True</code> to your <code className="bg-panel border border-line px-1.5 py-0.5 rounded text-[11px] font-mono">PalWorldSettings.ini</code>, then restart the server.
+              </div>
+              {fallbackPlayers && fallbackPlayers.length > 0 && (
+                <div className="mt-4">
+                  <div className="text-[11px] uppercase tracking-widest text-fog mb-2">Online (from RCON)</div>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {fallbackPlayers.map((p, i) => (
+                      <div key={i} className="flex items-center gap-1.5 text-[12.5px] bg-panel rounded-lg px-3 py-1.5 border border-line">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#7ce666]" />
+                        {p.name}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Map canvas */}
+              <div
+                className="relative w-full rounded-xl overflow-hidden border border-line bg-[#060d18]"
+                style={{ aspectRatio: '1 / 1', maxHeight: '65vh' }}
+              >
+                {/* Actual Palworld map image */}
+                <img
+                  src="https://palworld-map.appsample.com/static/media/palpagos-islands.webp"
+                  alt="Palpagos Island"
+                  className="absolute inset-0 w-full h-full object-cover opacity-80"
+                  onError={(e) => {
+                    // Fallback to wiki image if CDN is unavailable
+                    (e.target as HTMLImageElement).src =
+                      'https://palworld.wiki.gg/images/thumb/4/4e/Palpagos_Island.png/1200px-Palpagos_Island.png';
+                  }}
+                />
+
+                {/* Dark vignette */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background:
+                      'radial-gradient(ellipse at center, transparent 60%, rgba(4,8,20,0.7) 100%)',
+                  }}
+                />
+
+                {/* Grid reference */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(rgba(45,217,232,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(45,217,232,0.05) 1px, transparent 1px)',
+                    backgroundSize: '10% 10%',
+                  }}
+                />
+
+                {/* Player markers */}
+                {players.map((p) => (
+                  <PlayerDot
+                    key={p.userId}
+                    player={p}
+                    hovered={hovered === p.userId}
+                    onEnter={() => setHovered(p.userId)}
+                    onLeave={() => setHovered(null)}
+                  />
+                ))}
+
+                {/* No players message */}
+                {!loading && players.length === 0 && !restError && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="bg-panel/80 backdrop-blur-sm border border-line rounded-xl px-5 py-3 text-[13px] text-fog">
+                      No players currently online
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading */}
+                {loading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                    <div className="w-5 h-5 border-2 border-fog/40 border-t-fog rounded-full animate-spin" />
+                  </div>
+                )}
+
+                {/* Legend */}
+                <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-panel/80 backdrop-blur-sm border border-line rounded-lg px-2.5 py-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#2fd9e8]" />
+                  <span className="text-[11px] text-fog">Player</span>
+                </div>
+
+                {/* Server name */}
+                <div className="absolute top-3 left-3 bg-panel/80 backdrop-blur-sm border border-line rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-bone">
+                  {active?.name ?? 'Palworld Server'}
+                </div>
+              </div>
+
+              {/* Player list */}
+              {players.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {players.map((p) => (
+                    <div
+                      key={p.userId}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-2 rounded-xl border transition-colors cursor-default',
+                        hovered === p.userId
+                          ? 'border-[#2fd9e8]/50 bg-[#2fd9e8]/10'
+                          : 'border-line bg-panel hover:bg-panel-raised',
+                      )}
+                      onMouseEnter={() => setHovered(p.userId)}
+                      onMouseLeave={() => setHovered(null)}
+                    >
+                      <div className="w-2 h-2 rounded-full bg-[#2fd9e8] shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-[12.5px] font-medium text-bone truncate">{p.name}</div>
+                        <div className="text-[10.5px] text-fog">
+                          Lv {p.level} ·{' '}
+                          <span style={{ color: pingColor(p.ping) }}>{fmtPing(p.ping)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </PanelSection>
+      )}
+
+      {/* ── Interactive Reference Map (embed) ─────────────────────────────── */}
+      {tab === 'reference' && (
+        <PanelSection
+          title="Palpagos Islands — Interactive Map"
+          description="Full interactive map by palworld-map.appsample.com — browse locations, fast travel points, boss spawns, and more."
+        >
+          <div className="rounded-xl overflow-hidden border border-line" style={{ height: '70vh' }}>
+            <iframe
+              ref={iframeRef}
+              src="https://palworld-map.appsample.com/?no_heading=1"
+              title="Palworld Interactive Map"
+              className="w-full h-full"
+              style={{ border: 'none', background: '#060d18' }}
+              loading="lazy"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            />
+          </div>
+          <p className="mt-2 text-[11px] text-fog/50 text-center">
+            Map data © <a
+              href="https://palworld-map.appsample.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-fog"
+            >palworld-map.appsample.com</a>
+          </p>
+        </PanelSection>
+      )}
     </ViewWrapper>
   );
 }

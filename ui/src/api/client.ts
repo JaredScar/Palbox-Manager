@@ -187,6 +187,7 @@ export function makeApi(instanceId: number) {
 
     // Palworld REST API info
     palrestInfo: () => request<PalRestInfo>(p('/palrest/info')),
+    palrestPlayers: () => request<PalRestPlayer[]>(p('/palrest/players')),
   };
 }
 
@@ -492,6 +493,17 @@ export interface PalRestInfo {
   description: string;
   worldguid: string;
   days: number;
+}
+
+export interface PalRestPlayer {
+  name: string;
+  playerId: string;
+  userId: string;
+  ip: string;
+  ping: number;
+  location_x: number;
+  location_y: number;
+  level: number;
 }
 
 export interface HeatmapCell {
