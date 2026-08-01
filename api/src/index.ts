@@ -40,6 +40,7 @@ import notificationsRoutes from './routes/notificationsRoute.js';
 import configHistoryRoutes from './routes/configHistory.js';
 import savebrowserRoutes from './routes/savebrowser.js';
 import searchRoutes from './routes/search.js';
+import diagnosticsRoutes from './routes/diagnostics.js';
 
 const app = express();
 
@@ -82,6 +83,7 @@ app.use('/api/instances/:instanceId/notifications', notificationsRoutes);
 app.use('/api/instances/:instanceId/server/config-history', configHistoryRoutes);
 app.use('/api/instances/:instanceId/savebrowser', savebrowserRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/instances/:instanceId/server/diagnostics', diagnosticsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ServerStatus, MetricPoint, WorldInfo, MaintenanceState } from '../api/client';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { ServerStatus, MetricPoint, WorldInfo, MaintenanceState, DiagnosticsResponse } from '../api/client';
 import { useInstance } from '../context/InstanceContext';
 import { usePermission } from '../hooks/usePermission';
 import { Button } from '../components/ui/Button';
@@ -67,6 +67,9 @@ export function Dashboard() {
   const [visibleWidgets, setVisibleWidgets] = useState<Set<WidgetId>>(loadWidgets);
   const [showCustomiser, setShowCustomiser] = useState(false);
   const [leaderboard, setLeaderboard] = useState<{ steam_id: string; name: string; playtime_s: number }[]>([]);
+  const [diagResult, setDiagResult] = useState<DiagnosticsResponse | null>(null);
+  const [diagDismissed, setDiagDismissed] = useState(false);
+  const diagRanRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!api) return;
@@ -99,6 +102,16 @@ export function Dashboard() {
     const t = setInterval(refresh, 10_000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  // Auto-run diagnostics once when we first see the server as online
+  useEffect(() => {
+    if (!api || !status || status.status !== 'online' || diagRanRef.current) return;
+    diagRanRef.current = true;
+    api.diagnostics().then((r) => {
+      // Only surface the banner when something is wrong
+      if (!r.rcon.ok || !r.rest.ok) setDiagResult(r);
+    }).catch(() => {/* silent */});
+  }, [api, status]);
 
   async function doAction(action: 'start' | 'stop' | 'restart' | 'save') {
     if (!api) return;
@@ -185,6 +198,37 @@ export function Dashboard() {
         </>
       }
     >
+      {/* Connection diagnostics warning */}
+      {diagResult && !diagDismissed && (!diagResult.rcon.ok || !diagResult.rest.ok) && (
+        <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/8 p-3 flex gap-3 items-start">
+          <svg className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-300">Connection Issues Detected</p>
+            <p className="text-xs text-amber-200/80 mt-0.5 leading-relaxed">{diagResult.summary}</p>
+            <div className="flex flex-wrap gap-3 mt-2">
+              {!diagResult.rcon.ok && diagResult.rcon.error && (
+                <div className="flex items-start gap-1.5 text-xs text-red-300/90">
+                  <span className="font-semibold text-red-400 flex-shrink-0">RCON:</span>
+                  <span>{diagResult.rcon.error}</span>
+                </div>
+              )}
+              {!diagResult.rest.ok && diagResult.rest.error && (
+                <div className="flex items-start gap-1.5 text-xs text-red-300/90">
+                  <span className="font-semibold text-red-400 flex-shrink-0">REST API:</span>
+                  <span>{diagResult.rest.error}</span>
+                </div>
+              )}
+            </div>
+            <a href="/settings#instances" className="inline-block mt-2 text-xs text-amber-400 hover:text-amber-300 underline">
+              Open Settings → Run Diagnostics
+            </a>
+          </div>
+          <button onClick={() => setDiagDismissed(true)} className="text-fog hover:text-bone text-lg leading-none flex-shrink-0 ml-auto">×</button>
+        </div>
+      )}
+
       {/* Widget customiser dropdown */}
       {showCustomiser && (
         <div className="mb-4 bg-panel border border-line rounded-2xl p-4 flex flex-wrap gap-3">

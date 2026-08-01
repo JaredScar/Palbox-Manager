@@ -5,8 +5,8 @@ import { Switch } from '../components/ui/Switch';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { PanelSection, ToggleRow } from '../components/ui/PanelSection';
 import { cn } from '../lib/cn';
-import type { AlertRule, BroadcastSchedule, UserAccount, Instance, ConfigSnapshot, DiffLine } from '../api/client';
-import { authApi, instanceApi } from '../api/client';
+import type { AlertRule, BroadcastSchedule, UserAccount, Instance, ConfigSnapshot, DiffLine, DiagnosticsResponse } from '../api/client';
+import { authApi, instanceApi, makeApi } from '../api/client';
 import { useTheme, THEMES } from '../contexts/ThemeContext';
 import { UPDATE_POLL_OPTIONS, UPDATE_POLL_KEY } from '../hooks/useUpdater';
 
@@ -714,6 +714,82 @@ function InstanceForm({ initial, onSave, onCancel, saving }: {
   );
 }
 
+/* ── Connection Diagnostics ───────────────────────────────────────────────── */
+function DiagRow({ label, result }: { label: string; result: DiagnosticsResponse['rcon'] | DiagnosticsResponse['rest'] }) {
+  const ok = result.ok;
+  return (
+    <div className={`rounded-lg border p-3 flex flex-col gap-1 ${ok ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-red-500/40 bg-red-500/5'}`}>
+      <div className="flex items-center gap-2">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ok ? 'bg-emerald-400' : 'bg-red-400'}`} />
+        <span className="text-sm font-semibold text-bone">{label}</span>
+        {result.latencyMs != null && ok && (
+          <span className="ml-auto text-xs text-fog">{result.latencyMs}ms</span>
+        )}
+        <span className={`ml-auto text-xs font-semibold ${ok ? 'text-emerald-400' : 'text-red-400'}`}>
+          {ok ? 'Connected' : 'Failed'}
+        </span>
+      </div>
+      {!ok && result.error && (
+        <p className="text-xs text-red-300/90 leading-relaxed pl-4">{result.error}</p>
+      )}
+      {'serverName' in result && result.serverName && (
+        <p className="text-xs text-fog pl-4">Server: {result.serverName} · v{(result as DiagnosticsResponse['rest']).version}</p>
+      )}
+    </div>
+  );
+}
+
+function ConnectionDiagnostics({ instanceId }: { instanceId: number }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<DiagnosticsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setRunning(true);
+    setError(null);
+    try {
+      const api = makeApi(instanceId);
+      const r = await api.diagnostics();
+      setResult(r);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setRunning(false);
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-line/60 bg-panel-raised p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-bone">Connection Diagnostics</p>
+          <p className="text-xs text-fog mt-0.5">Test RCON and REST API connectivity for this server.</p>
+        </div>
+        <Button variant="aqua" loading={running} onClick={run}>
+          {running ? 'Testing…' : 'Run Test'}
+        </Button>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-xs text-red-300">{error}</div>
+      )}
+
+      {result && (
+        <>
+          <DiagRow label="RCON" result={result.rcon} />
+          <DiagRow label="REST API (port 8212)" result={result.rest} />
+          <p className={`text-xs rounded-lg px-3 py-2 ${
+            result.rcon.ok && result.rest.ok
+              ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+              : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
+          }`}>
+            {result.summary}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function InstancesSection() {
   const { instances, setActiveId, reload } = useInstance();
   const [editing, setEditing] = useState<number | 'new' | null>(null);
@@ -776,7 +852,10 @@ function InstancesSection() {
           <InstanceForm initial={BLANK_INSTANCE} onSave={save} onCancel={() => setEditing(null)} saving={saving} />
         )}
         {typeof editing === 'number' && editingInstance && (
-          <InstanceForm initial={editingInstance} onSave={save} onCancel={() => setEditing(null)} saving={saving} />
+          <>
+            <InstanceForm initial={editingInstance} onSave={save} onCancel={() => setEditing(null)} saving={saving} />
+            <ConnectionDiagnostics instanceId={editingInstance.id} />
+          </>
         )}
 
         {editing === null && (

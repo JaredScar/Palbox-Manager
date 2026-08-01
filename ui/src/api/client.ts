@@ -188,6 +188,10 @@ export function makeApi(instanceId: number) {
     // Palworld REST API info
     palrestInfo: () => request<PalRestInfo>(p('/palrest/info')),
     palrestPlayers: () => request<PalRestPlayer[]>(p('/palrest/players')),
+
+    // Connection diagnostics
+    diagnostics: () =>
+      request<DiagnosticsResponse>(p('/server/diagnostics'), { method: 'POST' }),
   };
 }
 
@@ -548,4 +552,16 @@ export interface ConfigSnapshot {
 export interface DiffLine {
   type: '+' | '-' | ' ';
   line: string;
+}
+
+export interface DiagResult {
+  ok:         boolean;
+  latencyMs:  number | null;
+  error:      string | null;
+}
+
+export interface DiagnosticsResponse {
+  rcon:    DiagResult & { authenticated?: boolean };
+  rest:    DiagResult & { serverName?: string; version?: string };
+  summary: string;
 }
