@@ -20,6 +20,8 @@ export interface DiagnosticsResponse {
   rcon:    DiagResult;
   rest:    DiagResult & { serverName?: string; version?: string };
   summary: string;
+  /** True when something needs the user's attention. RCON alone failing does not. */
+  degraded: boolean;
 }
 
 // Probe budget. Every host is probed concurrently, so the whole request is
@@ -74,8 +76,15 @@ async function probeRest(host: string, port: number, password: string): Promise<
 function explainRcon(raw: string, host: string, port: number): string {
   if (raw.includes('RCON_BAD_PASSWORD'))
     return `The server rejected the RCON password. It must match AdminPassword in PalWorldSettings.ini exactly (case-sensitive).`;
-  if (raw.includes('RCON_NO_REPLY'))
-    return `Connected to ${host}:${port}, but the server never replied to the authentication request. Something is listening on that port but is not answering as RCON — confirm RCONEnabled=True and that RCONPort really is ${port}.`;
+  if (raw.includes('RCON_NO_REPLY')) {
+    // The client appends the raw bytes when a frame arrived but stalled, which
+    // is the difference between "nothing is speaking RCON" and "it replied
+    // with something we could not frame".
+    const stall = raw.match(/sent ([0-9a-f]+) but declared a longer packet/)?.[1];
+    return stall
+      ? `Connected to ${host}:${port} and the server replied, but the packet it sent (0x${stall}) declares a longer length than it actually delivered, so the response could never be completed. This is a malformed RCON frame from the game server.`
+      : `Connected to ${host}:${port}, but the server never replied to the authentication request. Something is listening on that port but is not answering as RCON — confirm RCONEnabled=True and that RCONPort really is ${port}.`;
+  }
   if (raw.includes('RCON_UNREACHABLE') || raw.includes('ETIMEDOUT'))
     return `No TCP connection to ${host}:${port} within ${PROBE_MS}ms — packets are being dropped, usually by a firewall.`;
   if (raw.includes('ECONNREFUSED'))
@@ -177,20 +186,22 @@ router.post('/', requirePermission('server.view'), async (req, res) => {
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────
+  // The REST API is the transport Palbox prefers; RCON is legacy and is only
+  // needed for free-form console commands, so it failing is not a fault state.
   let summary: string;
-  if (rcon.ok && rest.ok) {
-    summary = rcon.hint || rest.hint
-      ? 'Both RCON and the REST API are working, using an address other than the one configured.'
-      : 'Both RCON and the REST API are connected and working.';
-  } else if (rcon.ok) {
-    summary = 'RCON is working but the REST API is not — player positions and world map data will be unavailable.';
+  if (rest.ok && rcon.ok) {
+    summary = rest.hint || rcon.hint
+      ? 'The REST API and RCON are both working, using an address other than the one configured.'
+      : 'The REST API and RCON are both connected and working.';
   } else if (rest.ok) {
-    summary = 'The REST API is working but RCON is not. The REST API can run most commands, so the panel stays usable, but the console tab needs RCON.';
+    summary = 'The REST API is connected and working. RCON did not respond, which is fine — Palbox uses the REST API for everything except free-form console commands.';
+  } else if (rcon.ok) {
+    summary = 'RCON is working but the REST API is not. Set RESTAPIEnabled=True and open the REST API port; player positions, world map data, and metrics need it.';
   } else {
-    summary = 'Neither RCON nor the REST API could connect. Check your server settings and firewall.';
+    summary = 'Neither the REST API nor RCON could connect. Check your server settings and firewall.';
   }
 
-  res.json({ rcon, rest, summary } satisfies DiagnosticsResponse);
+  res.json({ rcon, rest, summary, degraded: !rest.ok } satisfies DiagnosticsResponse);
 });
 
 export default router;

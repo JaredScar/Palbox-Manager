@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import type { Instance } from '../db/types.js';
 import { log } from '../lib/logger.js';
-import { instRcon } from './connection.js';
+import { instAnnounce } from './connection.js';
 import { broadcast } from '../ws.js';
 import { logAction } from './audit.js';
 
@@ -37,9 +37,9 @@ export async function enableMaintenance(
     const delay = (countdownMinutes - minutesLeft) * 60 * 1000;
     setTimeout(async () => {
       try {
-        await instRcon(
+        await instAnnounce(
           inst,
-          `Broadcast [Maintenance] Server entering maintenance in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.`,
+          `[Maintenance] Server entering maintenance in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.`,
         );
       } catch { /* server might not be running */ }
     }, delay);

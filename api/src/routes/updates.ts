@@ -3,7 +3,7 @@ import { requireAuth, requirePermission } from '../middleware/auth';
 import { resolveInstance } from '../middleware/instance';
 import { getBuildInfo, checkForUpdate, runUpdate, getUpdateHistory } from '../services/steamcmd';
 import { stopServer, startServer } from '../services/palserver';
-import { instRcon } from '../services/connection';
+import { instAnnounce, instSave } from '../services/connection';
 import { broadcast } from '../ws';
 import { getSchedule, updateSchedule, syncScheduler, getNextRestart } from '../services/scheduler';
 import { pushNotification } from '../services/notifications';
@@ -32,11 +32,11 @@ router.post('/apply', requirePermission('updates.apply'), async (req, res) => {
   (async () => {
     try {
       try {
-        await instRcon(inst, 'Broadcast Server is updating in 60 seconds.');
+        await instAnnounce(inst, 'Server is updating in 60 seconds.');
         await new Promise((r) => setTimeout(r, 50_000));
-        await instRcon(inst, 'Broadcast Server updating in 10 seconds!');
+        await instAnnounce(inst, 'Server updating in 10 seconds!');
         await new Promise((r) => setTimeout(r, 10_000));
-        await instRcon(inst, 'Save');
+        await instSave(inst);
       } catch {}
       await stopServer(inst);
       await runUpdate(inst, (line) => {

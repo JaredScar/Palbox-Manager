@@ -715,22 +715,34 @@ function InstanceForm({ initial, onSave, onCancel, saving }: {
 }
 
 /* ── Connection Diagnostics ───────────────────────────────────────────────── */
-function DiagRow({ label, result }: { label: string; result: DiagnosticsResponse['rcon'] | DiagnosticsResponse['rest'] }) {
+function DiagRow({ label, note, optional, result }: {
+  label: string;
+  note?: string;
+  /** Renders a failure in amber rather than red — the panel works without it. */
+  optional?: boolean;
+  result: DiagnosticsResponse['rcon'] | DiagnosticsResponse['rest'];
+}) {
   const ok = result.ok;
+  const tone = ok
+    ? { border: 'border-emerald-500/40 bg-emerald-500/5', dot: 'bg-emerald-400', text: 'text-emerald-400', body: 'text-emerald-300/90' }
+    : optional
+      ? { border: 'border-amber-500/40 bg-amber-500/5', dot: 'bg-amber-400', text: 'text-amber-400', body: 'text-amber-300/90' }
+      : { border: 'border-red-500/40 bg-red-500/5', dot: 'bg-red-400', text: 'text-red-400', body: 'text-red-300/90' };
   return (
-    <div className={`rounded-lg border p-3 flex flex-col gap-1 ${ok ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-red-500/40 bg-red-500/5'}`}>
+    <div className={`rounded-lg border p-3 flex flex-col gap-1 ${tone.border}`}>
       <div className="flex items-center gap-2">
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ok ? 'bg-emerald-400' : 'bg-red-400'}`} />
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${tone.dot}`} />
         <span className="text-sm font-semibold text-bone">{label}</span>
+        {note && <span className="text-xs text-fog">{note}</span>}
         {result.latencyMs != null && ok && (
           <span className="ml-auto text-xs text-fog">{result.latencyMs}ms</span>
         )}
-        <span className={`ml-auto text-xs font-semibold ${ok ? 'text-emerald-400' : 'text-red-400'}`}>
-          {ok ? 'Connected' : 'Failed'}
+        <span className={`ml-auto text-xs font-semibold ${tone.text}`}>
+          {ok ? 'Connected' : optional ? 'Unavailable' : 'Failed'}
         </span>
       </div>
       {!ok && result.error && (
-        <p className="text-xs text-red-300/90 leading-relaxed pl-4">{result.error}</p>
+        <p className={`text-xs leading-relaxed pl-4 ${tone.body}`}>{result.error}</p>
       )}
       {result.hint && (
         <p className="text-xs text-aqua leading-relaxed pl-4 mt-1 border-l-2 border-aqua/40 ml-0.5">
@@ -767,7 +779,9 @@ function ConnectionDiagnostics({ instanceId }: { instanceId: number }) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold text-bone">Connection Diagnostics</p>
-          <p className="text-xs text-fog mt-0.5">Test RCON and REST API connectivity for this server.</p>
+          <p className="text-xs text-fog mt-0.5">
+            Test connectivity for this server. Palbox prefers the REST API; RCON only backs the console tab.
+          </p>
         </div>
         <Button variant="aqua" loading={running} onClick={run}>
           {running ? 'Testing…' : 'Run Test'}
@@ -780,10 +794,10 @@ function ConnectionDiagnostics({ instanceId }: { instanceId: number }) {
 
       {result && (
         <>
-          <DiagRow label="RCON" result={result.rcon} />
-          <DiagRow label="REST API (port 8212)" result={result.rest} />
+          <DiagRow label="REST API" note="preferred · port 8212" result={result.rest} />
+          <DiagRow label="RCON" note="legacy · console only" optional result={result.rcon} />
           <p className={`text-xs rounded-lg px-3 py-2 ${
-            result.rcon.ok && result.rest.ok
+            !result.degraded
               ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
               : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
           }`}>

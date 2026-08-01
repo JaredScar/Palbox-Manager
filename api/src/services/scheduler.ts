@@ -3,7 +3,7 @@ import { getDb } from '../db';
 import type { Instance } from '../db/types';
 import { log } from '../lib/logger';
 import { stopServer, startServer } from './palserver';
-import { instRcon } from './connection';
+import { instAnnounce, instSave } from './connection';
 
 export interface RestartSchedule {
   id: number;
@@ -125,19 +125,19 @@ async function doScheduledRestart(inst: Instance, warnMinutes: number): Promise<
 
   try {
     if (warnMinutes > 0) {
-      await instRcon(
+      await instAnnounce(
         inst,
-        `Broadcast Server restarting in ${warnMinutes} minute${warnMinutes === 1 ? '' : 's'}.`,
+        `Server restarting in ${warnMinutes} minute${warnMinutes === 1 ? '' : 's'}.`,
       );
     }
     if (warnMs > 10_000) {
       await new Promise((r) => setTimeout(r, warnMs - 10_000));
-      await instRcon(inst, 'Broadcast Server restarting in 10 seconds!');
+      await instAnnounce(inst, 'Server restarting in 10 seconds!');
       await new Promise((r) => setTimeout(r, 10_000));
     } else if (warnMs > 0) {
       await new Promise((r) => setTimeout(r, warnMs));
     }
-    await instRcon(inst, 'Save');
+    await instSave(inst);
   } catch {
     // RCON might fail if server is already down — continue anyway
   }

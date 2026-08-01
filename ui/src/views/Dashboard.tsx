@@ -116,8 +116,9 @@ export function Dashboard() {
     if (!api || !status || status.status !== 'online' || diagRanRef.current) return;
     diagRanRef.current = true;
     api.diagnostics().then((r) => {
-      // Only surface the banner when something is wrong
-      if (!r.rcon.ok || !r.rest.ok) setDiagResult(r);
+      // Only surface the banner when the REST API is down. RCON is legacy and
+      // only backs the console tab, so it failing alone is not worth a warning.
+      if (r.degraded) setDiagResult(r);
     }).catch(() => {/* silent */});
   }, [api, status]);
 
@@ -207,7 +208,7 @@ export function Dashboard() {
       }
     >
       {/* Connection diagnostics warning */}
-      {diagResult && !diagDismissed && (!diagResult.rcon.ok || !diagResult.rest.ok) && (
+      {diagResult && !diagDismissed && diagResult.degraded && (
         <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/8 p-3 flex gap-3 items-start">
           <svg className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />

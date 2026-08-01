@@ -1,9 +1,24 @@
+/**
+ * Source-protocol RCON client, tuned for Palworld.
+ *
+ * Palworld's RCON is a loose reimplementation of the Source protocol and
+ * breaks two assumptions a strict client makes: it does not reliably echo the
+ * request id on the auth response, and it can declare a packet size larger
+ * than the payload it actually sends. A strict length-prefixed reader waits
+ * forever for the missing bytes, which surfaces as a bogus timeout even though
+ * the reply already arrived. The assembler below falls back to a lenient read
+ * when a frame stops making progress.
+ *
+ * RCON is legacy — see services/connection.ts, which prefers the REST API and
+ * only reaches for this when there is no REST equivalent.
+ */
 import net from 'net';
 
 const SERVERDATA_AUTH = 3;
-const SERVERDATA_AUTH_RESPONSE = 2;
 const SERVERDATA_EXECCOMMAND = 2;
-const SERVERDATA_RESPONSE_VALUE = 0;
+
+/** How long a frame may sit incomplete before it is read leniently. */
+const FRAME_GRACE_MS = 250;
 
 interface RconPacket {
   id: number;
@@ -12,46 +27,92 @@ interface RconPacket {
 }
 
 function encodePacket(id: number, type: number, body: string): Buffer {
-  const bodyBuf = Buffer.from(body + '\0', 'utf8');
-  const size = 4 + 4 + bodyBuf.length + 1; // id + type + body + trailing null
-  const buf = Buffer.allocUnsafe(4 + size);
+  const bodyLen = Buffer.byteLength(body, 'utf8');
+  // size counts everything after itself: id + type + body + two terminators.
+  const size = 4 + 4 + bodyLen + 2;
+  const buf = Buffer.alloc(4 + size);
   buf.writeInt32LE(size, 0);
   buf.writeInt32LE(id, 4);
   buf.writeInt32LE(type, 8);
-  bodyBuf.copy(buf, 12);
-  buf.writeUInt8(0, 12 + bodyBuf.length);
+  buf.write(body, 12, 'utf8');
   return buf;
 }
 
-function decodePackets(data: Buffer): RconPacket[] {
-  const packets: RconPacket[] = [];
-  let offset = 0;
-  while (offset + 4 <= data.length) {
-    const size = data.readInt32LE(offset);
-    if (offset + 4 + size > data.length) break;
-    const id = data.readInt32LE(offset + 4);
-    const type = data.readInt32LE(offset + 8);
-    const bodyEnd = offset + 4 + size - 2;
-    const body = data.slice(offset + 12, bodyEnd).toString('utf8');
-    packets.push({ id, type, body });
-    offset += 4 + size;
-  }
-  return packets;
+/**
+ * Packet ids in the range other Palworld clients use. Low ids (0, 1, 2) are
+ * reserved or special-cased by some server builds, so staying well clear of
+ * them removes a variable.
+ */
+function randomPacketId(): number {
+  return Math.trunc(Math.random() * (0x98967f - 0xf4240) + 0xf4240);
 }
 
-/** Reserved packet id for the authentication exchange. */
-const AUTH_ID = 1;
+/** Reassembles the TCP byte stream into packets, tolerating bad size fields. */
+class PacketAssembler {
+  private buffer = Buffer.alloc(0);
+
+  push(chunk: Buffer): void {
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+  }
+
+  get pendingBytes(): number {
+    return this.buffer.length;
+  }
+
+  /** First bytes still unread, for diagnostics when a frame never completes. */
+  preview(): string {
+    return this.buffer.subarray(0, 32).toString('hex');
+  }
+
+  /** Reads only frames whose declared size has fully arrived. */
+  read(): RconPacket[] {
+    const packets: RconPacket[] = [];
+    let offset = 0;
+    while (offset + 12 <= this.buffer.length) {
+      const size = this.buffer.readInt32LE(offset);
+      if (size < 10 || offset + 4 + size > this.buffer.length) break;
+      packets.push(this.decodeAt(offset, size));
+      offset += 4 + size;
+    }
+    if (offset > 0) this.buffer = this.buffer.subarray(offset);
+    return packets;
+  }
+
+  /**
+   * Reads whatever is buffered even when the declared size overshoots it.
+   * Used once a frame has stalled past the grace period — at that point the
+   * missing bytes are not late, they were never going to be sent.
+   */
+  readLenient(): RconPacket[] {
+    if (this.buffer.length < 12) return [];
+    const size = this.buffer.readInt32LE(0);
+    const packet = this.decodeAt(0, size);
+    this.buffer = Buffer.alloc(0);
+    return [packet];
+  }
+
+  private decodeAt(offset: number, size: number): RconPacket {
+    const id = this.buffer.readInt32LE(offset + 4);
+    const type = this.buffer.readInt32LE(offset + 8);
+    // Trim the two terminators, clamped so an oversized size field cannot
+    // read past what actually arrived.
+    const end = Math.min(offset + 4 + size - 2, this.buffer.length);
+    const body = this.buffer.subarray(offset + 12, Math.max(offset + 12, end)).toString('utf8');
+    return { id, type, body: body.replace(/\n$/, '') };
+  }
+}
 
 export class RconClient {
   private host: string;
   private port: number;
   private password: string;
   private socket: net.Socket | null = null;
-  private buffer = Buffer.alloc(0);
-  // Starts at 2 because the auth exchange reserves id 1.
-  private reqId = 2;
-  private awaitingAuth = false;
-  private pendingMap = new Map<number, { resolve: (v: string) => void; reject: (e: Error) => void }>();
+  private assembler = new PacketAssembler();
+  private graceTimer: NodeJS.Timeout | null = null;
+  private authId: number | null = null;
+  private pending = new Map<number, { resolve: (v: string) => void; reject: (e: Error) => void }>();
+  /** Raw hex of a stalled frame, surfaced in the timeout message. */
+  private lastStall: string | null = null;
 
   constructor(host: string, port: number, password: string) {
     this.host = host;
@@ -62,24 +123,24 @@ export class RconClient {
   /**
    * Opens the socket and authenticates.
    *
-   * A bare net.Socket has NO connect timeout — if a firewall silently drops
-   * SYN packets (rather than sending RST) the socket waits indefinitely and
-   * this promise never settles. Every caller must therefore be bounded.
+   * A bare net.Socket has no connect timeout, so a firewall that drops SYN
+   * packets instead of sending RST would hang this forever. The TCP handshake
+   * and the auth exchange are timed separately: "could not reach the host" and
+   * "reached it but nothing spoke RCON back" have entirely different causes.
    */
   connect(timeoutMs = 5000): Promise<void> {
     return new Promise((resolve, reject) => {
       const sock = new net.Socket();
       this.socket = sock;
+      // Auth and command packets are tiny; Nagle would only add latency.
+      sock.setNoDelay(true);
 
       let settled = false;
-      let connectTimer: NodeJS.Timeout;
-
       const fail = (err: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(connectTimer);
-        sock.destroy();
-        this.socket = null;
+        this.teardown();
         reject(err);
       };
       const succeed = () => {
@@ -89,94 +150,106 @@ export class RconClient {
         resolve();
       };
 
-      // Only covers the TCP handshake. Keeping the connect and auth phases
-      // separate matters: "cannot reach the host" and "reached it but nothing
-      // spoke RCON back" have completely different causes.
-      connectTimer = setTimeout(
+      const connectTimer = setTimeout(
         () => fail(new Error(`RCON_UNREACHABLE: no TCP connection to ${this.host}:${this.port} within ${timeoutMs}ms`)),
         timeoutMs,
       );
 
+      sock.on('data', (chunk) => this.onData(chunk));
+      sock.on('error', (err) => fail(err));
+      sock.on('close', () => {
+        this.socket = null;
+        this.rejectAll(new Error('RCON socket closed by the server'));
+      });
+
       sock.connect(this.port, this.host, async () => {
         clearTimeout(connectTimer);
-        this.awaitingAuth = true;
         try {
           await this.sendRaw(SERVERDATA_AUTH, this.password, true, timeoutMs);
           succeed();
         } catch (e) {
           const msg = (e as Error).message;
-          fail(
-            msg.includes('timed out')
-              ? new Error(`RCON_NO_REPLY: connected to ${this.host}:${this.port} but got no response to the auth request`)
-              : (e as Error),
-          );
-        } finally {
-          this.awaitingAuth = false;
+          if (msg.includes('RCON_')) { fail(e as Error); return; }
+          const detail = this.lastStall
+            ? ` The server sent ${this.lastStall} but declared a longer packet.`
+            : ' Nothing was received.';
+          fail(new Error(
+            `RCON_NO_REPLY: connected to ${this.host}:${this.port} but the auth request went unanswered.${detail}`,
+          ));
         }
-      });
-
-      sock.on('data', (chunk: Buffer) => {
-        this.buffer = Buffer.concat([this.buffer, chunk]);
-        const packets = decodePackets(this.buffer);
-        for (const pkt of packets) {
-          // A failed auth comes back with id -1 rather than the request id, so
-          // looking it up in pendingMap never matches. Handle it up front,
-          // otherwise a bad password silently waits out the request timeout.
-          if (pkt.id === -1) {
-            for (const [, h] of this.pendingMap) {
-              h.reject(new Error('RCON_BAD_PASSWORD: server rejected the RCON password'));
-            }
-            this.pendingMap.clear();
-            continue;
-          }
-
-          // Palworld's RCON is a loose Source implementation and does not
-          // reliably echo the request id on the auth response, so while
-          // authenticating any inbound packet is taken as that response.
-          const key = this.pendingMap.has(pkt.id) ? pkt.id
-            : (this.awaitingAuth && this.pendingMap.has(AUTH_ID)) ? AUTH_ID
-            : null;
-          if (key === null) continue;
-
-          const handler = this.pendingMap.get(key)!;
-          this.pendingMap.delete(key);
-          handler.resolve(pkt.body);
-        }
-        // Consume processed data
-        let consumed = 0;
-        let offset = 0;
-        while (offset + 4 <= this.buffer.length) {
-          const size = this.buffer.readInt32LE(offset);
-          if (offset + 4 + size > this.buffer.length) break;
-          consumed = offset + 4 + size;
-          offset += 4 + size;
-        }
-        if (consumed > 0) this.buffer = this.buffer.slice(consumed);
-      });
-
-      sock.on('error', (err) => fail(err));
-
-      sock.on('close', () => {
-        this.socket = null;
-        for (const [, h] of this.pendingMap) {
-          h.reject(new Error('RCON socket closed'));
-        }
-        this.pendingMap.clear();
       });
     });
+  }
+
+  private onData(chunk: Buffer): void {
+    this.assembler.push(chunk);
+    this.dispatch(this.assembler.read());
+
+    if (this.graceTimer) clearTimeout(this.graceTimer);
+    // Bytes left over are either the front of a split frame or a frame whose
+    // declared size overshot. Give the network a moment to prove it is the
+    // former before reading it the lenient way.
+    if (this.assembler.pendingBytes >= 12) {
+      this.lastStall = this.assembler.preview();
+      this.graceTimer = setTimeout(() => {
+        this.dispatch(this.assembler.readLenient());
+      }, FRAME_GRACE_MS);
+    }
+  }
+
+  private dispatch(packets: RconPacket[]): void {
+    for (const pkt of packets) {
+      // A rejected password comes back as id -1 rather than the request id, so
+      // a plain lookup never matches and a bad password would otherwise sit
+      // there until the request timed out.
+      if (pkt.id === -1) {
+        this.rejectAll(new Error('RCON_BAD_PASSWORD: the server rejected the RCON password'));
+        continue;
+      }
+
+      // Palworld does not reliably echo the request id, so while the auth
+      // exchange is outstanding any inbound packet is taken as its response.
+      const key = this.pending.has(pkt.id) ? pkt.id
+        : (this.authId !== null && this.pending.has(this.authId)) ? this.authId
+        : null;
+      if (key === null) continue;
+
+      const handler = this.pending.get(key)!;
+      this.pending.delete(key);
+      handler.resolve(pkt.body);
+    }
+  }
+
+  private rejectAll(err: Error): void {
+    for (const [, h] of this.pending) h.reject(err);
+    this.pending.clear();
+  }
+
+  private teardown(): void {
+    if (this.graceTimer) clearTimeout(this.graceTimer);
+    this.graceTimer = null;
+    this.socket?.destroy();
+    this.socket = null;
   }
 
   private sendRaw(type: number, body: string, isAuth = false, timeoutMs = 5000): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.socket) return reject(new Error('Not connected'));
-      const id = isAuth ? AUTH_ID : this.reqId++;
-      this.pendingMap.set(id, { resolve, reject });
-      setTimeout(() => {
-        if (this.pendingMap.has(id)) {
-          this.pendingMap.delete(id);
-          reject(new Error('RCON request timed out'));
-        }
+      const id = randomPacketId();
+      if (isAuth) this.authId = id;
+
+      const timer = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        this.pending.delete(id);
+        if (isAuth) this.authId = null;
+        reject(new Error('RCON request timed out'));
       }, timeoutMs);
+
+      this.pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); if (isAuth) this.authId = null; resolve(v); },
+        reject:  (e) => { clearTimeout(timer); if (isAuth) this.authId = null; reject(e); },
+      });
+
       this.socket.write(encodePacket(id, type, body));
     });
   }
@@ -186,8 +259,7 @@ export class RconClient {
   }
 
   disconnect(): void {
-    this.socket?.destroy();
-    this.socket = null;
+    this.teardown();
   }
 
   get connected(): boolean {
@@ -195,9 +267,10 @@ export class RconClient {
   }
 }
 
-// Stateless helper — opens, authenticates, runs command, closes.
-// The finally block guarantees the socket is released even when connect()
-// or send() throws, which previously leaked a socket per failed call.
+/**
+ * Opens, authenticates, runs one command, closes. The finally block releases
+ * the socket even when connect() or send() throws.
+ */
 export async function rconExec(
   host: string,
   port: number,

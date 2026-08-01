@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { getDb } from '../db/index.js';
 import type { Instance, BroadcastSchedule } from '../db/types.js';
-import { instRcon } from './connection.js';
+import { instAnnounce } from './connection.js';
 import { log } from '../lib/logger.js';
 
 // Map of instanceId → Map<scheduleId, ScheduledTask>
@@ -31,7 +31,7 @@ export function syncBroadcaster(inst: Instance): void {
 
     const task = cron.schedule(sched.cron, async () => {
       try {
-        await instRcon(inst, `Broadcast ${sched.message}`);
+        await instAnnounce(inst, sched.message);
         log.info(`[${inst.name}] Broadcast: "${sched.message}"`);
       } catch (err) {
         log.warn(`[${inst.name}] Broadcast failed for "${sched.name}":`, err);

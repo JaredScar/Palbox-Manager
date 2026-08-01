@@ -4,7 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { listBackups, createBackup, deleteBackup, getBackupSchedule, updateBackupSchedule } from '../services/backup.js';
 import { stopServer, startServer } from '../services/palserver.js';
-import { instRcon } from '../services/connection.js';
+import { instSave } from '../services/connection.js';
 import { logAction } from '../services/audit.js';
 import { broadcast } from '../ws.js';
 import { fireEvent } from '../services/discord.js';
@@ -67,7 +67,7 @@ router.post('/:id/restore', requirePermission('backups.restore'), async (req, re
       await createBackup(inst, 'manual');
 
       emit('Saving world via RCON…');
-      try { await instRcon(inst, 'Save'); } catch {}
+      try { await instSave(inst); } catch {}
 
       emit('Stopping server…');
       await stopServer(inst);

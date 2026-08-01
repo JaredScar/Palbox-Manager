@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getStatus, startServer, stopServer, restartServer, getCpuAndMemory } from '../services/palserver.js';
-import { instRcon } from '../services/connection.js';
+import { instPlayers, instSave, instCommand } from '../services/connection.js';
 import { getDb } from '../db/index.js';
 import { sendDiscord, fireEvent } from '../services/discord.js';
 import { isArmed, getLastIntervention, getMetrics24h } from '../services/watchdog.js';
@@ -38,37 +38,23 @@ router.get('/status', requirePermission('server.view'), async (req, res) => {
   if (status === 'offline') clearPlayers(inst.id);
 
   // ── Player list ────────────────────────────────────────────────────────────
-  // Primary source: in-memory tracker populated by log-file parsing (always
-  // available even when RCON is not configured).
+  // Baseline: in-memory tracker populated by log-file parsing, always
+  // available even when neither REST nor RCON is configured.
   let players = getOnlinePlayers(inst.id);
 
-  // Supplement with RCON ShowPlayers if configured — it provides richer data
-  // (steam IDs) and is authoritative when available.
+  // Prefer a live query — the REST API returns ping, level, and coordinates,
+  // and RCON at least gives authoritative names and ids.
   if (status === 'online' && inst.rcon_password) {
     try {
-      // Hard-capped: /status is polled every 10s by the dashboard, so a slow or
-      // unreachable RCON host must degrade to the log-based list, never stall.
-      const raw = await withTimeout(
-        instRcon(inst, 'ShowPlayers', 1500),
-        9000,
-        'RCON ShowPlayers',
-      );
-      // Response: first line is a header "name,playeruid,steamid" — skip it.
-      const lines = raw.split('\n').slice(1).filter((l) => l.includes(','));
-      if (lines.length > 0) {
-        // RCON is working and has real data — prefer it over log tracking
-        players = lines.map((l) => {
-          const parts = l.split(',');
-          return {
-            name:      parts[0]?.trim() ?? '',
-            playerUid: parts[1]?.trim() ?? '',
-            steamId:   parts[2]?.trim() ?? '',
-            joinedAt:  0,
-          };
-        });
+      // Hard-capped: /status is polled every 10s by the dashboard, so a slow
+      // or unreachable host must degrade to the log-based list, never stall.
+      const live = await withTimeout(instPlayers(inst, 1500), 9000, 'Player query');
+      if (live.length > 0) {
+        players = live.map((p) => ({ ...p, joinedAt: 0 }));
       }
-      // If RCON returned 0 lines (empty server), fall through to log-based count
-    } catch { /* RCON not reachable — stick with log-based list */ }
+      // Zero players is a legitimate answer, so fall through to the log list
+      // only when the query itself failed.
+    } catch { /* server unreachable — stick with the log-based list */ }
   }
 
   res.json({
@@ -165,7 +151,7 @@ router.post('/restart', requirePermission('server.restart'), async (req, res) =>
 router.post('/save', requirePermission('server.save'), async (req, res) => {
   const inst = req.instance!;
   try {
-    await instRcon(inst, 'Save');
+    await instSave(inst);
     logAction(inst.id, 'server.save');
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -176,7 +162,7 @@ router.post('/rcon', requirePermission('console.rcon'), async (req, res) => {
   const { command } = req.body as { command?: string };
   if (!command) { res.status(400).json({ error: 'command required' }); return; }
   try {
-    const result = await instRcon(inst, command);
+    const result = await instCommand(inst, command);
     logAction(inst.id, 'rcon', command);
     res.json({ ok: true, result });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }

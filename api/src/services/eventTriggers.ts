@@ -81,14 +81,14 @@ export async function evaluateTriggers(inst: Instance, ctx: Context): Promise<vo
           break;
         }
         case 'rcon_command': {
-          const { instRcon } = await import('./connection.js');
-          const result = await instRcon(inst, params.command ?? '');
-          pushNotification(inst.id, `RCON executed`, `${params.command} → ${result}`, 'info');
+          const { instCommand } = await import('./connection.js');
+          const result = await instCommand(inst, params.command ?? '');
+          pushNotification(inst.id, `Command executed`, `${params.command} → ${result}`, 'info');
           break;
         }
         case 'broadcast_message': {
-          const { instRcon } = await import('./connection.js');
-          await instRcon(inst, `Broadcast ${params.message ?? ''}`);
+          const { instAnnounce } = await import('./connection.js');
+          await instAnnounce(inst, params.message ?? '');
           pushNotification(inst.id, `Broadcast sent`, params.message ?? '', 'info');
           break;
         }

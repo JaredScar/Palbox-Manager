@@ -2,7 +2,7 @@ import { getDb } from '../db/index.js';
 import type { Instance, AlertRule } from '../db/types.js';
 import { log } from '../lib/logger.js';
 import { getStatus, startServer, getCpuAndMemory } from './palserver.js';
-import { instRcon } from './connection.js';
+import { instPlayers } from './connection.js';
 import { sendDiscord } from './discord.js';
 import { broadcast } from '../ws.js';
 import { evaluateTriggers } from './eventTriggers.js';
@@ -45,30 +45,17 @@ export function getLastIntervention(instanceId: number): number | null {
   return getState(instanceId).lastIntervention;
 }
 
-// Parse RCON ShowPlayers output → [{name, steamId}]
-function parseShowPlayers(raw: string): { name: string; steamId: string }[] {
-  return raw
-    .split('\n')
-    .filter((l) => l.includes(','))
-    .map((l) => {
-      const parts = l.split(',');
-      return { name: parts[0]?.trim() ?? '', steamId: parts[2]?.trim() ?? '' };
-    })
-    .filter((p) => p.steamId);
-}
-
 async function checkHealth(inst: Instance): Promise<void> {
   const s = getState(inst.id);
   const db = getDb();
   const { status, uptime } = await getStatus(inst);
   const { cpuPct, memMb } = await getCpuAndMemory(inst);
 
-  // RCON heartbeat + player list
+  // Liveness heartbeat + player list (REST preferred, RCON fallback)
   let players: { name: string; steamId: string }[] = [];
   let rconOk = false;
   try {
-    const raw = await instRcon(inst, 'ShowPlayers');
-    players = parseShowPlayers(raw);
+    players = await instPlayers(inst);
     rconOk = true;
     s.consecutiveFailures = 0;
   } catch {

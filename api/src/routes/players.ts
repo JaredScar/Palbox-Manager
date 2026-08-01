@@ -4,7 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth';
 import { fireEvent } from '../services/discord';
 import { resolveInstance } from '../middleware/instance';
 import { getDb } from '../db';
-import { instRcon } from '../services/connection';
+import { instKick, instBan, instUnban } from '../services/connection';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -102,7 +102,7 @@ router.patch('/:steamId/whitelist', requirePermission('players.whitelist'), (req
 router.post('/:steamId/kick', requirePermission('players.kick'), async (req, res) => {
   const inst = req.instance!;
   try {
-    await instRcon(inst, `KickPlayer ${req.params.steamId}`);
+    await instKick(inst, req.params.steamId);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
@@ -111,7 +111,7 @@ router.post('/:steamId/ban', requirePermission('players.ban'), async (req, res) 
   const inst = req.instance!;
   const { reason, expires } = req.body as { reason?: string; expires?: number };
   try {
-    await instRcon(inst, `BanPlayer ${req.params.steamId}`).catch(() => {});
+    await instBan(inst, req.params.steamId).catch(() => {});
     const player = getDb()
       .prepare('SELECT name FROM players WHERE instance_id = ? AND steam_id = ?')
       .get(inst.id, req.params.steamId) as { name: string } | undefined;
@@ -129,7 +129,7 @@ router.post('/:steamId/ban', requirePermission('players.ban'), async (req, res) 
 router.post('/:steamId/unban', requirePermission('players.ban'), async (req, res) => {
   const inst = req.instance!;
   try {
-    await instRcon(inst, `UnBanPlayer ${req.params.steamId}`);
+    await instUnban(inst, req.params.steamId);
     getDb().prepare('UPDATE players SET banned = 0 WHERE instance_id = ? AND steam_id = ?')
       .run(inst.id, req.params.steamId);
     res.json({ ok: true });

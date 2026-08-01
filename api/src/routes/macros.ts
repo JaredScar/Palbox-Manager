@@ -3,7 +3,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { resolveInstance } from '../middleware/instance.js';
 import { getDb } from '../db/index.js';
 import type { RconMacro } from '../db/types.js';
-import { instRcon } from '../services/connection.js';
+import { instCommand } from '../services/connection.js';
 import { logAction } from '../services/audit.js';
 
 const router = Router({ mergeParams: true });
@@ -61,7 +61,7 @@ router.post('/:id/run', requirePermission('macros.manage'), async (req, res) => 
     .get(parseInt(req.params.id, 10), inst.id) as RconMacro | undefined;
   if (!macro) { res.status(404).json({ error: 'Macro not found' }); return; }
   try {
-    const result = await instRcon(inst, macro.command);
+    const result = await instCommand(inst, macro.command);
     logAction(inst.id, 'macro.run', `"${macro.name}": ${macro.command}`);
     res.json({ ok: true, result });
   } catch (err) {

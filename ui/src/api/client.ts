@@ -583,4 +583,6 @@ export interface DiagnosticsResponse {
   rcon:    DiagResult;
   rest:    DiagResult & { serverName?: string; version?: string };
   summary: string;
+  /** True when something needs attention. RCON alone failing does not. */
+  degraded: boolean;
 }
