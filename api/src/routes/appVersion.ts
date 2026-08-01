@@ -194,6 +194,22 @@ Log "installDir : $installDir"
 Log "svcName    : $svcName"
 Log "zipPath    : $zipPath"
 
+# Stopping and starting a service needs Administrator. When Palbox runs as a
+# service under LocalSystem this is already true, but when it is started by
+# hand from an ordinary shell the child inherits that unprivileged token and
+# every service call below fails. Say so plainly rather than failing obscurely.
+$isAdmin = $false
+try {
+  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $isAdmin = (New-Object Security.Principal.WindowsPrincipal $id).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+} catch {}
+Log "user       : $([Environment]::UserName) (administrator: $isAdmin)"
+if (-not $isAdmin) {
+  Log 'WARNING: not running as Administrator. Stopping and starting the Palbox service will fail.'
+  Log "WARNING: to finish manually, open an elevated PowerShell and run: $PSCommandPath"
+}
+
 # Locate nssm.exe -- fixed paths first to avoid slow PATH scan
 $nssmExe = $null
 $candidates = @(
@@ -329,20 +345,50 @@ try { Copy-Item $transcriptF (Join-Path $installDir 'palbox-transcript.log') -Fo
     // Write with UTF-8 BOM (\uFEFF) so PowerShell 5.1 detects the encoding
     // correctly on any system locale, avoiding garbled multi-byte characters.
     fs.writeFileSync(psScript, '\uFEFF' + ps, 'utf8');
-    fs.appendFileSync(logFile, `${new Date().toISOString()}  Script written to ${psScript} -- launching detached PowerShell\r\n`);
-
     // ── Spawn PowerShell detached ──────────────────────────────────────────
     // detached: true + unref() = the child process gets its own process group
     // and survives the Node.js/NSSM service being stopped.
+    //
+    // An absolute path is used because a service started by NSSM does not
+    // reliably inherit a PATH containing System32\WindowsPowerShell, and a
+    // bare "powershell.exe" that cannot be resolved fails silently.
+    const systemRoot = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows';
+    const psExe = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const psExeResolved = fs.existsSync(psExe) ? psExe : 'powershell.exe';
+
+    fs.appendFileSync(logFile, `${new Date().toISOString()}  Script written to ${psScript} -- launching ${psExeResolved}\r\n`);
+
+    // The child's own output goes to a file rather than being discarded. If
+    // PowerShell dies before the script's logging starts - a blocked execution
+    // policy, a parse error - this is the only place that failure is visible,
+    // and discarding it is what made this look like nothing happened at all.
+    const bootstrapLog = path.join(updateDir, 'bootstrap.log');
+    let stdio: 'ignore' | ['ignore', number, number] = 'ignore';
+    try {
+      const fd = fs.openSync(bootstrapLog, 'a');
+      stdio = ['ignore', fd, fd];
+    } catch { /* fall back to discarding output */ }
+
     const child = spawn(
-      'powershell.exe',
+      psExeResolved,
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', psScript],
-      {
-        detached: true,
-        stdio:    'ignore',
-        windowsHide: true,
-      },
+      { detached: true, stdio, windowsHide: true },
     );
+
+    const note = (msg: string) => {
+      try { fs.appendFileSync(logFile, `${new Date().toISOString()}  ${msg}\r\n`); } catch { /* best effort */ }
+    };
+
+    child.on('error', (err) => {
+      note(`FAILED to launch PowerShell: ${(err as Error).message}. The update has not been applied.`);
+    });
+    // A script that runs correctly stops this process before it can exit, so a
+    // fast exit means it failed and the reason is worth recording.
+    child.on('exit', (code) => {
+      if (code !== 0) note(`PowerShell exited early with code ${code}. See ${bootstrapLog}.`);
+    });
+
+    if (child.pid) note(`PowerShell started (pid ${child.pid}).`);
     child.unref();
 
     res.json({
@@ -362,6 +408,41 @@ try { Copy-Item $transcriptF (Join-Path $installDir 'palbox-transcript.log') -Fo
       );
     } catch {}
     res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * The tail of the update log. The update runs in a detached process that
+ * outlives this one, so its progress and any failure are otherwise only
+ * visible by opening files on the server - which is no help to someone
+ * watching the panel.
+ */
+router.get('/update-log', requireAuth, (_req, res) => {
+  const installDir = process.env.PALBOX_INSTALL_DIR ?? process.cwd();
+  const sources = [
+    path.join('C:\\PalboxUpdate', 'update.log'),
+    path.join(installDir, 'palbox-update.log'),
+    path.join('C:\\PalboxUpdate', 'bootstrap.log'),
+  ];
+
+  let newest: { file: string; mtime: number } | null = null;
+  for (const file of sources) {
+    try {
+      const { mtimeMs } = fs.statSync(file);
+      if (!newest || mtimeMs > newest.mtime) newest = { file, mtime: mtimeMs };
+    } catch { /* not created yet */ }
+  }
+
+  if (!newest) {
+    res.json({ found: false, file: null, lines: [], modifiedAt: null });
+    return;
+  }
+
+  try {
+    const lines = fs.readFileSync(newest.file, 'utf8').split(/\r?\n/).filter(Boolean);
+    res.json({ found: true, file: newest.file, lines: lines.slice(-200), modifiedAt: newest.mtime });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
   }
 });
 

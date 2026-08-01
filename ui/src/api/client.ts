@@ -169,6 +169,9 @@ export function makeApi(instanceId: number) {
     logLines: (tail = 200, search = '') =>
       request<{ lines: string[] }>(p(`/chat/log?tail=${tail}&search=${encodeURIComponent(search)}`)),
     logStatus: () => request<LogStatus>(p('/chat/log-status')),
+  enableLogging: () => request<{ changed: boolean; restartRequired: boolean; message: string }>(
+    p('/chat/enable-logging'), { method: 'POST' },
+  ),
 
     // Backup schedule
     getBackupSchedule: () => request<BackupScheduleConfig>(p('/backups/schedule')),

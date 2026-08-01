@@ -1,6 +1,6 @@
 {
   "name": "@palbox/electron",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "Palbox — self-hosted Palworld server management panel (desktop shell)",
   "author": "Palbox contributors",
   "repository": {

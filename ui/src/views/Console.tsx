@@ -59,6 +59,8 @@ export function Console() {
   const [logLoading, setLogLoading] = useState(false);
   const [wsState, setWsState] = useState<'connecting' | 'live' | 'reconnecting'>('connecting');
   const [logStatus, setLogStatus] = useState<LogStatus | null>(null);
+  const [enablingLog, setEnablingLog] = useState(false);
+  const [enableLogMsg, setEnableLogMsg] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -125,6 +127,19 @@ export function Console() {
       wsRef.current?.close();
     };
   }, [active?.id]);
+
+  async function handleEnableLogging() {
+    if (!api) return;
+    setEnablingLog(true);
+    setEnableLogMsg('');
+    try {
+      const r = await api.enableLogging();
+      setEnableLogMsg(r.message);
+    } catch (e) {
+      setEnableLogMsg((e as Error).message);
+    }
+    setEnablingLog(false);
+  }
 
   // Explain a silent stream rather than showing "waiting" forever
   useEffect(() => {
@@ -304,14 +319,20 @@ export function Console() {
                         <div className="font-sans space-y-2 max-w-xl">
                           <div className="text-bone font-medium">The live stream has nothing to show</div>
                           <p className="leading-relaxed">{logStatus.reason}</p>
-                          {logStatus.configured && (
+                          {logStatus.exists && (
                             <p className="text-[11px] font-mono text-fog/60 break-all">{logStatus.path}</p>
                           )}
-                          {!logStatus.configured && (
-                            <a href="/settings#instances" className="inline-block text-aqua hover:underline text-[12px]">
-                              Open instance settings
-                            </a>
+                          {!logStatus.exists && (
+                            <div className="flex items-center gap-3 pt-1">
+                              <Button variant="ghost" loading={enablingLog} onClick={handleEnableLogging}>
+                                Enable server logging
+                              </Button>
+                              <a href="/settings#instances" className="text-aqua hover:underline text-[12px]">
+                                Instance settings
+                              </a>
+                            </div>
                           )}
+                          {enableLogMsg && <p className="text-[12px] text-aqua leading-relaxed">{enableLogMsg}</p>}
                         </div>
                       ) : (
                         'Waiting for log output…'

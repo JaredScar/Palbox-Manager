@@ -10,6 +10,7 @@ import { resolveInstalledBuildId } from '../services/steamcmd.js';
 import { readSettings } from '../services/ini.js';
 import { logAction } from '../services/audit.js';
 import { getOnlinePlayers, clearPlayers } from '../services/playerTracker.js';
+import { emitConsole } from '../ws.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -125,6 +126,7 @@ router.post('/start', requirePermission('server.start'), async (req, res) => {
   try {
     await startServer(inst);
     logAction(inst.id, 'server.start');
+    emitConsole(inst.id, 'Start requested from the panel.');
     fireEvent(inst, 'server_online', '🟢 Server Online', `**${inst.name}** has started.`).catch(() => {});
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -134,6 +136,7 @@ router.post('/stop', requirePermission('server.stop'), async (req, res) => {
   const inst = req.instance!;
   try {
     fireEvent(inst, 'server_offline', '🔴 Server Offline', `**${inst.name}** is stopping.`).catch(() => {});
+    emitConsole(inst.id, 'Stop requested from the panel.');
     await stopServer(inst);
     logAction(inst.id, 'server.stop');
     res.json({ ok: true });
@@ -142,6 +145,7 @@ router.post('/stop', requirePermission('server.stop'), async (req, res) => {
 
 router.post('/restart', requirePermission('server.restart'), async (req, res) => {
   try {
+    emitConsole(req.instance!.id, 'Restart requested from the panel.');
     await restartServer(req.instance!);
     logAction(req.instance!.id, 'server.restart');
     res.json({ ok: true });
@@ -153,6 +157,7 @@ router.post('/save', requirePermission('server.save'), async (req, res) => {
   try {
     await instSave(inst);
     logAction(inst.id, 'server.save');
+    emitConsole(inst.id, 'World saved.');
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: (err as Error).message }); }
 });
@@ -162,10 +167,17 @@ router.post('/rcon', requirePermission('console.rcon'), async (req, res) => {
   const { command } = req.body as { command?: string };
   if (!command) { res.status(400).json({ error: 'command required' }); return; }
   try {
+    emitConsole(inst.id, `> ${command}`);
     const result = await instCommand(inst, command);
     logAction(inst.id, 'rcon', command);
+    // Echoing the reply is what makes the console a usable command surface
+    // when the game writes no log of its own.
+    if (result?.trim()) emitConsole(inst.id, result.trim());
     res.json({ ok: true, result });
-  } catch (err) { res.status(500).json({ error: (err as Error).message }); }
+  } catch (err) {
+    emitConsole(inst.id, `Command failed: ${(err as Error).message}`);
+    res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 router.get('/watchdog', requirePermission('server.view'), (req, res) => {

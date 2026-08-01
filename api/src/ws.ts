@@ -195,6 +195,30 @@ export function stopLogTail(instanceId: number): void {
  * otherwise indistinguishable from a quiet server, so the UI needs this to say
  * which one it is.
  */
+/**
+ * Whether a real log file is being read, as opposed to the console showing
+ * only Palbox's own event feed.
+ */
+export function isTailingFile(instanceId: number): boolean {
+  return tailFiles.has(instanceId);
+}
+
+/**
+ * Writes a line into the console from Palbox itself.
+ *
+ * Palworld exposes no log or console stream over RCON or the REST API - only
+ * state queries and actions - so when the server writes no log file there is
+ * nothing to stream. These synthesised lines are what keeps the console
+ * useful in that case, and they are prefixed so they are never mistaken for
+ * output from the game.
+ */
+export function emitConsole(instanceId: number, message: string): void {
+  const ts = new Date().toTimeString().slice(0, 8);
+  const line = `[${ts}][Palbox] ${message}`;
+  bufferLine(instanceId, line);
+  broadcast({ type: 'log', instanceId, line });
+}
+
 export function getTailStatus(instanceId: number): { tailing: boolean; buffered: number; file: string | null } {
   return {
     // Attached to a real file, rather than merely polling for one to appear.

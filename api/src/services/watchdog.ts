@@ -4,7 +4,7 @@ import { log } from '../lib/logger.js';
 import { getStatus, startServer, getCpuAndMemory } from './palserver.js';
 import { instPlayers } from './connection.js';
 import { sendDiscord } from './discord.js';
-import { broadcast } from '../ws.js';
+import { broadcast, emitConsole, isTailingFile } from '../ws.js';
 import { evaluateTriggers } from './eventTriggers.js';
 import { pushNotification } from './notifications.js';
 import { snapshotConfig } from './configHistory.js';
@@ -86,6 +86,9 @@ async function checkHealth(inst: Instance): Promise<void> {
 
         await sendDiscord(inst, `**${inst.name}** — \`${name}\` joined the server.`, 'player_joined');
         log.info(`[${inst.name}] ${name} joined`);
+        // Only when no real log is being read, otherwise this duplicates the
+        // join line the game already writes.
+        if (!isTailingFile(inst.id)) emitConsole(inst.id, `${name} joined the server (${sid})`);
       }
     }
 
@@ -111,6 +114,7 @@ async function checkHealth(inst: Instance): Promise<void> {
 
         await sendDiscord(inst, `**${inst.name}** — \`${name}\` left the server.`, 'player_left');
         log.info(`[${inst.name}] ${name} left`);
+        if (!isTailingFile(inst.id)) emitConsole(inst.id, `${name} left the server (${sid})`);
       }
     }
 
@@ -173,8 +177,10 @@ async function checkHealth(inst: Instance): Promise<void> {
     db.prepare('INSERT INTO uptime_events (instance_id, status) VALUES (?, ?)').run(inst.id, curStatus);
     if (curStatus === 'offline') {
       pushNotification(inst.id, 'Server went offline', inst.name, 'error');
+      emitConsole(inst.id, 'Server is offline.');
     } else {
       pushNotification(inst.id, 'Server is online', inst.name, 'success');
+      emitConsole(inst.id, `Server is online${players.length ? ` with ${players.length} player(s)` : ''}.`);
     }
     s.lastStatus = curStatus;
   }

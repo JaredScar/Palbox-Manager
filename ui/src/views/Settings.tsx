@@ -912,6 +912,7 @@ function AppUpdateSection() {
   const [applying, setApplying] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updateLog, setUpdateLog] = useState<string[]>([]);
 
   useEffect(() => {
     fetch('/api/app-version', { credentials: 'include' })
@@ -931,10 +932,30 @@ function AppUpdateSection() {
       const body = await res.json() as { ok?: boolean; message?: string; error?: string };
       if (!res.ok) throw new Error(body.error ?? res.statusText);
       setMessage(body.message ?? 'Update queued — the panel will restart shortly.');
+      pollUpdateLog();
     } catch (e) {
       setError((e as Error).message);
       setApplying(false);
     }
+  }
+
+  /**
+   * The updater stops this service partway through, so polling is expected to
+   * start failing. Until it does, the log is the only sign of whether the
+   * detached process actually got going.
+   */
+  function pollUpdateLog() {
+    let elapsed = 0;
+    const id = setInterval(() => {
+      elapsed += 3;
+      fetch('/api/app-version/update-log', { credentials: 'include' })
+        .then((r) => r.json())
+        .then((d: { found: boolean; lines: string[] }) => {
+          if (d.found) setUpdateLog(d.lines);
+        })
+        .catch(() => { /* the panel is restarting, which is the good case */ });
+      if (elapsed >= 120) clearInterval(id);
+    }, 3000);
   }
 
   return (
@@ -972,9 +993,19 @@ function AppUpdateSection() {
           {message && (
             <div className="p-3.5 rounded-xl bg-lime/6 border border-lime/30 text-lime text-[12.5px] leading-relaxed">
               {message}
-              <div className="mt-2 text-fog/70">
-                Check <code className="font-mono text-[11px]">palbox-update.log</code> in your install directory for progress details.
+            </div>
+          )}
+
+          {/* The update runs in a detached process that outlives the panel, so
+              its progress is only visible by reading its log back. */}
+          {updateLog.length > 0 && (
+            <div className="rounded-xl border border-line overflow-hidden">
+              <div className="px-3.5 py-2 border-b border-line text-[11px] uppercase tracking-widest text-fog">
+                Update log
               </div>
+              <pre className="p-3.5 font-mono text-[11.5px] leading-relaxed text-fog max-h-64 overflow-y-auto whitespace-pre-wrap">
+                {updateLog.join('\n')}
+              </pre>
             </div>
           )}
           {error && (

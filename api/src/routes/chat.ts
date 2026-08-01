@@ -7,6 +7,7 @@ import { getDb } from '../db/index.js';
 import type { ChatMessage } from '../db/types.js';
 import { getTailStatus } from '../ws.js';
 import { resolveLogFile, explainMissingLog } from '../lib/logfile.js';
+import { enableFileLogging } from '../services/palserver.js';
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth, resolveInstance);
@@ -97,6 +98,19 @@ router.get('/log-status', requirePermission('console.view'), (req, res) => {
     buffered,
     reason,
   });
+});
+
+/**
+ * Configures the server to produce a log file. Palworld only writes one when
+ * launched with -log, so a server that was never given that flag has nothing
+ * for the console to read no matter how it is configured here.
+ */
+router.post('/enable-logging', requirePermission('settings.manage'), async (req, res) => {
+  try {
+    res.json(await enableFileLogging(req.instance!));
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
 });
 
 export default router;

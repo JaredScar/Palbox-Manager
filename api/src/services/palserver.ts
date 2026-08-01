@@ -1,9 +1,12 @@
-import { exec, spawn } from 'child_process';
+import { exec, execFile, spawn } from 'child_process';
 import { promisify } from 'util';
+import os from 'os';
+import path from 'path';
 import type { Instance } from '../db/types';
 import { log } from '../lib/logger';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export type ServerStatus = 'online' | 'offline' | 'starting' | 'stopping';
 
@@ -29,6 +32,107 @@ async function nssmCommand(serviceName: string, verb: string): Promise<string> {
     throw new Error(`NSSM service "${serviceName}" not found`);
   }
   return stdout.trim();
+}
+
+/**
+ * NSSM writes its output as UTF-16LE on Windows, which decodes to garbage if
+ * read as UTF-8.
+ */
+function decodeNssm(buf: Buffer): string {
+  const looksUtf16 = buf.length >= 2 && buf.indexOf(0) >= 0;
+  const text = looksUtf16 ? buf.toString('utf16le') : buf.toString('utf8');
+  return text.replace(/\uFEFF/g, '').replace(/\0/g, '').trim();
+}
+
+async function nssmGet(serviceName: string, param: string): Promise<string> {
+  const { stdout } = await execFileAsync('nssm', ['get', serviceName, param], {
+    timeout: 8_000,
+    encoding: 'buffer',
+  });
+  return decodeNssm(stdout as unknown as Buffer);
+}
+
+async function nssmSet(serviceName: string, param: string, value: string): Promise<void> {
+  // execFile rather than exec: the value can contain spaces and quotes, and
+  // passing it as an argument avoids building a shell command around it.
+  await execFileAsync('nssm', ['set', serviceName, param, value], { timeout: 8_000 });
+}
+
+export interface LoggingSetupResult {
+  changed: boolean;
+  restartRequired: boolean;
+  message: string;
+}
+
+/**
+ * Makes the server write a log file.
+ *
+ * Palworld is an Unreal shipping build, which only opens Pal\Saved\Logs\Pal.log
+ * when launched with -log. Without it no log is ever produced, and no amount of
+ * searching will find one - which is why the console can appear permanently
+ * empty on an otherwise healthy server. RCON and the REST API are no
+ * substitute: neither exposes a log or console stream.
+ */
+export async function enableFileLogging(inst: Instance): Promise<LoggingSetupResult> {
+  if (os.platform() !== 'win32') {
+    return { changed: false, restartRequired: false, message: 'Only supported on Windows.' };
+  }
+
+  const hasService = inst.service_name ? await nssmServiceExists(inst.service_name) : false;
+  if (!hasService) {
+    // Direct launches get -log added by startServer, so there is no persistent
+    // configuration to change.
+    return {
+      changed: false,
+      restartRequired: true,
+      message: inst.service_name
+        ? `No NSSM service named "${inst.service_name}" was found. Palbox launches the executable directly and now passes -log, so restart the server from the panel to start producing a log.`
+        : 'This instance launches the executable directly. Palbox now passes -log, so restart the server from the panel to start producing a log.',
+    };
+  }
+
+  let params: string;
+  try {
+    params = await nssmGet(inst.service_name, 'AppParameters');
+  } catch (e) {
+    throw new Error(
+      `Could not read the launch arguments for service "${inst.service_name}" via nssm: ${(e as Error).message}`,
+    );
+  }
+
+  const alreadyLogging = /(^|\s)-log(\s|$)/i.test(params);
+  if (!alreadyLogging) {
+    const updated = params ? `${params} -log` : '-log';
+    await nssmSet(inst.service_name, 'AppParameters', updated);
+    log.info(`[${inst.name}] Added -log to service launch arguments: ${updated}`);
+  }
+
+  // Capturing stdout as well means the console has something to show even if
+  // the game's own log stays empty.
+  let stdoutCaptured = false;
+  try {
+    const consoleLog = path.join(path.dirname(inst.exe_path || 'C:\\'), 'palbox-console.log');
+    await nssmSet(inst.service_name, 'AppStdout', consoleLog);
+    await nssmSet(inst.service_name, 'AppStderr', consoleLog);
+    await nssmSet(inst.service_name, 'AppRotateFiles', '1');
+    stdoutCaptured = true;
+  } catch (e) {
+    log.warn(`[${inst.name}] Could not configure stdout capture:`, e);
+  }
+
+  if (alreadyLogging && !stdoutCaptured) {
+    return {
+      changed: false,
+      restartRequired: false,
+      message: 'The server is already configured with -log. If no log appears, check that the server has been restarted since it was set.',
+    };
+  }
+
+  return {
+    changed: true,
+    restartRequired: true,
+    message: `Logging configured for "${inst.service_name}"${alreadyLogging ? '' : ' (-log added)'}${stdoutCaptured ? ' and console output is now captured' : ''}. Restart the server for it to take effect.`,
+  };
 }
 
 /** Check whether an NSSM service exists without throwing. */
@@ -111,7 +215,9 @@ export async function startServer(inst: Instance): Promise<void> {
     );
   }
   log.warn(`NSSM service "${inst.service_name}" not found — launching "${inst.exe_path}" directly.`);
-  const child = spawn(`"${inst.exe_path}"`, [], {
+  // -log makes the Unreal shipping build open Pal\Saved\Logs\Pal.log. Without
+  // it the server writes no log at all and the live console has no source.
+  const child = spawn(`"${inst.exe_path}"`, ['-log'], {
     shell: true,
     detached: true,
     stdio: 'ignore',

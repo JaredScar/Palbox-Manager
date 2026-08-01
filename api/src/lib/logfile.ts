@@ -105,5 +105,5 @@ export function explainMissingLog(res: LogFileResolution): string {
   if (res.backupsFound) {
     return 'Only rotated logs (Pal-backup-*.log) were found, so file logging works but the server has not opened a new log this run. It should appear shortly after the server starts.';
   }
-  return 'No log file was found. Palworld writes Pal\\Saved\\Logs\\Pal.log once the server has started; if it never appears, add -log to the server launch arguments so Unreal writes one.';
+  return 'No log file was found. Palworld is an Unreal shipping build and only writes Pal\\Saved\\Logs\\Pal.log when it is launched with -log, so a server started without that flag produces no log at all. RCON and the REST API cannot fill the gap - neither exposes a log or console stream - so until logging is enabled the console shows Palbox\'s own event feed instead.';
 }
