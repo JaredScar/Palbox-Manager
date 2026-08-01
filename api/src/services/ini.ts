@@ -142,24 +142,81 @@ export function writeIniRaw(inst: Instance, content: string): void {
 }
 
 function parseOptionSettings(raw: string): Record<string, string> {
-  const match = raw.match(/OptionSettings=\(([\s\S]*?)\)/);
-  if (!match) return {};
-  const inner = match[1];
+  const prefix = 'OptionSettings=(';
+  const start = raw.indexOf(prefix);
+  if (start === -1) return {};
+
+  // Walk character-by-character so that ) inside quoted values (e.g.
+  // CrossplayPlatforms="(Steam)") does NOT terminate the outer block early.
+  let i = start + prefix.length;
+  let inQuote = false;
+  let inner = '';
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === '"')            { inQuote = !inQuote; inner += ch; }
+    else if (ch === ')' && !inQuote) { break; }  // real closing paren
+    else                       { inner += ch; }
+    i++;
+  }
+
+  // Parse key=value pairs, respecting quoted values
   const result: Record<string, string> = {};
-  const re = /(\w+)=("(?:[^"\\]|\\.)*"|[^,)]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(inner)) !== null) {
-    let val = m[2];
-    if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-    result[m[1]] = val;
+  let pos = 0;
+  while (pos < inner.length) {
+    // Skip commas/whitespace between pairs
+    while (pos < inner.length && (inner[pos] === ',' || inner[pos] === ' ')) pos++;
+    if (pos >= inner.length) break;
+
+    // Key  (word chars only)
+    const keyStart = pos;
+    while (pos < inner.length && /\w/.test(inner[pos])) pos++;
+    const key = inner.slice(keyStart, pos);
+    if (!key || inner[pos] !== '=') break;
+    pos++; // skip '='
+
+    // Value — quoted or unquoted
+    let value = '';
+    if (inner[pos] === '"') {
+      pos++; // skip opening "
+      while (pos < inner.length && inner[pos] !== '"') {
+        if (inner[pos] === '\\' && pos + 1 < inner.length) {
+          value += inner[++pos]; // escaped char
+        } else {
+          value += inner[pos];
+        }
+        pos++;
+      }
+      if (pos < inner.length) pos++; // skip closing "
+    } else {
+      // Unquoted — read until next comma
+      while (pos < inner.length && inner[pos] !== ',') value += inner[pos++];
+    }
+
+    if (key) result[key] = value;
   }
   return result;
 }
 
+// Fields that Palworld expects to always be double-quoted in the INI,
+// regardless of their content (strings, URLs, IPs, passwords, etc.)
+const QUOTED_FIELDS = new Set([
+  'ServerName',
+  'ServerDescription',
+  'AdminPassword',
+  'ServerPassword',
+  'PublicIP',
+  'Region',
+  'BanListURL',
+  'RandomizerSeed',
+  'CrossplayPlatforms',
+]);
+
 function buildOptionSettings(settings: Record<string, string>): string {
   const entries = Object.entries(settings)
     .map(([k, v]) => {
-      const needsQuotes = /[,\s()]/.test(v) || v === '';
+      // Always quote fields in the whitelist; also quote anything that
+      // contains commas, spaces, or parentheses (e.g. CrossplayPlatforms value)
+      const needsQuotes = QUOTED_FIELDS.has(k) || /[,\s()]/.test(v);
       return `${k}=${needsQuotes ? `"${v}"` : v}`;
     })
     .join(',');
