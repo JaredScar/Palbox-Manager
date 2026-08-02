@@ -119,15 +119,27 @@ export function updateSchedule(
   return getSchedule(instanceId);
 }
 
-async function doScheduledRestart(inst: Instance, warnMinutes: number): Promise<void> {
+/**
+ * Warns players, saves, and restarts.
+ *
+ * Shared with scheduled events, which have no choice but to restart: Palworld
+ * only reads PalWorldSettings.ini at boot, so a rate change is inert until the
+ * process comes back.
+ */
+export async function restartWithWarning(
+  inst: Instance,
+  warnMinutes: number,
+  reason?: string,
+): Promise<void> {
   log.info(`[${inst.name}] Starting scheduled restart (warn=${warnMinutes}m)…`);
   const warnMs = warnMinutes * 60 * 1000;
+  const suffix = reason ? ` ${reason}` : '';
 
   try {
     if (warnMinutes > 0) {
       await instAnnounce(
         inst,
-        `Server restarting in ${warnMinutes} minute${warnMinutes === 1 ? '' : 's'}.`,
+        `Server restarting in ${warnMinutes} minute${warnMinutes === 1 ? '' : 's'}.${suffix}`,
       );
     }
     if (warnMs > 10_000) {
@@ -159,7 +171,7 @@ export function syncScheduler(inst: Instance): void {
   if (!expr) return;
 
   const job = cron.schedule(expr, () => {
-    doScheduledRestart(inst, sched.warn_minutes).catch((err) =>
+    restartWithWarning(inst, sched.warn_minutes).catch((err) =>
       log.error(`[${inst.name}] Scheduled restart failed:`, err),
     );
   }, { timezone: sched.timezone || 'UTC' });

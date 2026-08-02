@@ -145,11 +145,12 @@ function persist(instanceId: number, data: Awaited<ReturnType<typeof parseLevelS
     }
 
     const insBase = db.prepare(
-      `INSERT INTO base_camps (instance_id, base_id, guild_id, x, y, z, area_range, state, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,unixepoch())`,
+      `INSERT INTO base_camps
+         (instance_id, base_id, guild_id, x, y, z, area_range, state, worker_container_id, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,unixepoch())`,
     );
     for (const b of data.bases) {
-      insBase.run(instanceId, b.id, b.guildId, b.x, b.y, b.z, b.areaRange, b.state);
+      insBase.run(instanceId, b.id, b.guildId, b.x, b.y, b.z, b.areaRange, b.state, b.workerContainerId);
     }
 
     db.prepare('DELETE FROM pals WHERE instance_id = ?').run(instanceId);
@@ -158,8 +159,8 @@ function persist(instanceId: number, data: Awaited<ReturnType<typeof parseLevelS
          instance_id, instance_uid, character_id, nickname, level, exp, gender,
          lucky, boss, rank, talent_hp, talent_melee, talent_shot, talent_defense,
          soul_hp, soul_attack, soul_defence, soul_craftspeed, passives,
-         owner_player_id, updated_at
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+         owner_player_id, container_id, sanity, sick, updated_at
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
     );
     for (const p of data.pals) {
       insPal.run(
@@ -168,6 +169,7 @@ function persist(instanceId: number, data: Awaited<ReturnType<typeof parseLevelS
         p.talentHp, p.talentMelee, p.talentShot, p.talentDefense,
         p.soulHp, p.soulAttack, p.soulDefence, p.soulCraftSpeed,
         JSON.stringify(p.passives), p.ownerPlayerId,
+        p.containerId, p.sanity, p.sick ? 1 : 0,
       );
     }
 

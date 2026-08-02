@@ -86,6 +86,20 @@ function orgRawData(o, layout = 'legacy') {
   return w.tarrayGuid(o.baseIds).done();
 }
 
+/**
+ * The WorkerDirector blob: a GUID, an FTransform, two enum bytes, the worker
+ * container id, then the four trailing bytes the 0.6 update appended.
+ */
+function workerDirectorRawData(baseId, containerId) {
+  return new Writer()
+    .guid(baseId)
+    .ftransform(0, 0, 0)
+    .u8(0).u8(0)
+    .guid(containerId)
+    .raw(Buffer.alloc(4))
+    .done();
+}
+
 /** `pad` simulates a future patch inserting fields ahead of the transform. */
 function baseCampRawData(b, pad = 0) {
   const w = new Writer().guid(b.id).fstring('').u8(b.state);
@@ -99,8 +113,17 @@ function baseCampRawData(b, pad = 0) {
     .done();
 }
 
-/** A map entry value: a GroupType enum (optional) plus the RawData blob. */
-function entryValue(groupType, rawData) {
+const rawDataProp = (bytes) => property(
+  'RawData', 'ArrayProperty',
+  new Writer().fstring('ByteProperty').noGuid().done(),
+  new Writer().u32(bytes.length).raw(bytes).done(),
+);
+
+/**
+ * A map entry value: a GroupType enum (optional), an optional WorkerDirector
+ * sibling struct, and the RawData blob.
+ */
+function entryValue(groupType, rawData, workerDirector = null) {
   const w = new Writer();
   if (groupType) {
     w.raw(property(
@@ -109,11 +132,14 @@ function entryValue(groupType, rawData) {
       new Writer().fstring(groupType).done(),
     ));
   }
-  w.raw(property(
-    'RawData', 'ArrayProperty',
-    new Writer().fstring('ByteProperty').noGuid().done(),
-    new Writer().u32(rawData.length).raw(rawData).done(),
-  ));
+  if (workerDirector) {
+    w.raw(property(
+      'WorkerDirector', 'StructProperty',
+      new Writer().fstring('PalBaseCampSaveData_WorkerDirector').raw(Buffer.alloc(16)).noGuid().done(),
+      new Writer().raw(rawDataProp(workerDirector)).fstring('None').done(),
+    ));
+  }
+  w.raw(rawDataProp(rawData));
   return w.fstring('None').done();
 }
 
@@ -151,6 +177,20 @@ const enumProp  = (n, t, v) => property(n, 'EnumProperty', new Writer().fstring(
 const guidProp  = (n, v) => property(n, 'StructProperty',
   new Writer().fstring('Guid').raw(Buffer.alloc(16)).noGuid().done(),
   new Writer().guid(v).done());
+const floatProp = (n, v) => property(n, 'FloatProperty', new Writer().noGuid().done(), new Writer().f32(v).done());
+/**
+ * The container lives two structs deep, under a PalContainerId wrapper whose
+ * only field is the GUID itself.
+ */
+const slotIdProp = (containerId, slotIndex, key) => property(key, 'StructProperty',
+  new Writer().fstring('PalCharacterSlotId').raw(Buffer.alloc(16)).noGuid().done(),
+  new Writer()
+    .raw(property('ContainerId', 'StructProperty',
+      new Writer().fstring('PalContainerId').raw(Buffer.alloc(16)).noGuid().done(),
+      new Writer().raw(guidProp('ID', containerId)).fstring('None').done()))
+    .raw(intProp('SlotIndex', slotIndex))
+    .fstring('None')
+    .done());
 const nameArray = (n, list) => property(n, 'ArrayProperty',
   new Writer().fstring('NameProperty').noGuid().done(),
   (() => { const w = new Writer().u32(list.length); for (const s of list) w.fstring(s); return w.done(); })());
@@ -184,6 +224,11 @@ function palRawData(p, opts = {}) {
   if (opts.withSet) inner.raw(setProp('InLockerCharacterInstanceIDArray', 24));
 
   inner.raw(nameArray('PassiveSkillList', p.passives ?? []));
+  if (p.container) inner.raw(slotIdProp(p.container, p.slotIndex ?? 0, opts.slotKey ?? 'SlotId'));
+  // SanityValue and the sickness markers are absent when a Pal is fine, which
+  // is exactly why absence has to mean "full" rather than "zero".
+  if (p.sanity !== undefined) inner.raw(floatProp('SanityValue', p.sanity));
+  if (p.sick) inner.raw(enumProp('WorkerSick', 'EPalBaseCampWorkerSickType', 'EPalBaseCampWorkerSickType::Cold'));
   if (p.nickname) inner.raw(strProp('NickName', p.nickname));
   if (p.owner) inner.raw(guidProp('OwnerPlayerUId', p.owner));
   if (p.oldOwners) inner.raw(guidArray('OldOwnerPlayerUIds', p.oldOwners));
@@ -254,9 +299,12 @@ const guild = {
   ],
 };
 
+const CONTAINER_A = '0a0a0a0a-1111-2222-3333-444444444444';
+
 const bases = [
-  { id: BASE_A, guildId: GUILD_ID, x: -288669, y: 329207, z: 1500, areaRange: 2200, state: 1 },
-  { id: BASE_B, guildId: GUILD_ID, x: -167230, y: 96430,  z: 900,  areaRange: 1800, state: 2 },
+  { id: BASE_A, guildId: GUILD_ID, x: -288669, y: 329207, z: 1500, areaRange: 2200, state: 1, container: CONTAINER_A },
+  // No worker container, to prove an absent director is tolerated.
+  { id: BASE_B, guildId: GUILD_ID, x: -167230, y: 96430,  z: 900,  areaRange: 1800, state: 2, container: null },
 ];
 
 // A decoy occurrence of the property name, to prove the search validates the
@@ -286,12 +334,14 @@ const palFixtures = [
     }),
   },
   {
-    // A base worker: no current owner, but it remembers who caught it.
+    // A base worker: no current owner, but it remembers who caught it. It sits
+    // in the camp's worker container and is off sick with low sanity.
     playerId: ADMIN, instanceId: PAL_C,
     raw: palRawData({
       characterId: 'PinkCat', level: 7, rank: 1, gender: 'Male',
       ivs: [10, 10, 10, 10], oldOwners: [MEMBER],
-    }),
+      container: CONTAINER_A, slotIndex: 3, sanity: 42, sick: true,
+    }, { slotKey: 'SlotID' }),   // the spelling the writing tools use
   },
 ];
 
@@ -305,7 +355,12 @@ function buildBody(layout, basePad = 0) {
       { key: ORG_ID,   value: entryValue('EPalGroupType::Organization', orgRawData(org, layout)) },
     ]),
     mapProperty('BaseCampSaveData', bases.map((b) => ({
-      key: b.id, value: entryValue(null, baseCampRawData(b, basePad)),
+      key: b.id,
+      value: entryValue(
+        null,
+        baseCampRawData(b, basePad),
+        b.container ? workerDirectorRawData(b.id, b.container) : null,
+      ),
     }))),
     characterMap([
       ...palFixtures,
@@ -359,7 +414,7 @@ async function run() {
 
   // Pals and players out of the character map.
   {
-    const { pals, players } = await parseLevelSave(buildSav(body));
+    const { pals, players, bases: parsedBases } = await parseLevelSave(buildSav(body));
     const byId = Object.fromEntries(pals.map((p) => [p.instanceId, p]));
     const a = byId[PAL_A];
 
@@ -383,6 +438,25 @@ async function run() {
     check('alpha level', byId[PAL_B]?.level, 45);
     // A base worker has no OwnerPlayerUId, so it must fall back to its captor.
     check('base pal falls back to previous owner', byId[PAL_C]?.ownerPlayerId, MEMBER);
+
+    // Condition fields default to healthy when the save leaves them out.
+    check('healthy pal defaults to full sanity', a?.sanity, 100);
+    check('healthy pal is not sick', a?.sick, false);
+    check('worker sanity read', byId[PAL_C]?.sanity, 42);
+    check('worker sickness detected', byId[PAL_C]?.sick, true);
+
+    // The camp-to-worker join, through both spellings of the slot property.
+    const campA = parsedBases.find((b) => b.id === BASE_A);
+    const campB = parsedBases.find((b) => b.id === BASE_B);
+    check('base camp exposes worker container', campA?.workerContainerId, CONTAINER_A);
+    check('base camp without a director has none', campB?.workerContainerId, null);
+    check('SlotID spelling resolves the container', byId[PAL_C]?.containerId, CONTAINER_A);
+    check('pal with no slot has no container', a?.containerId, null);
+    check(
+      'workers join to their camp',
+      pals.filter((p) => p.containerId === campA?.workerContainerId).length,
+      1,
+    );
   }
 
   // A Palworld 1.0 world, with the two inserted guild fields. The layout has

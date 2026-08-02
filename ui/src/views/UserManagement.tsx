@@ -28,6 +28,7 @@ const PERM_GROUPS: Record<string, string[]> = {
   'Broadcasts':    ['broadcasts.manage'],
   'Alerts':        ['alerts.manage'],
   'Triggers':      ['triggers.manage'],
+  'Events':        ['events.view','events.manage'],
   'Audit':         ['audit.view'],
   'Settings':      ['settings.view','settings.manage'],
   'Cluster/World': ['cluster.view','world.view','config.view'],

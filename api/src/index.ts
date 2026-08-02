@@ -16,6 +16,7 @@ import { startWatchdog } from './services/watchdog.js';
 import { startWorldSaveScanner } from './services/worldSave.js';
 import { syncScheduler } from './services/scheduler.js';
 import { syncBroadcaster } from './services/broadcaster.js';
+import { syncEventScheduler } from './services/events.js';
 
 import authRoutes from './routes/auth.js';
 import instanceRoutes from './routes/instances.js';
@@ -44,6 +45,7 @@ import worldSaveRoutes from './routes/worldSave.js';
 import searchRoutes from './routes/search.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import palsRoutes from './routes/pals.js';
+import eventsRoutes from './routes/events.js';
 
 const app = express();
 
@@ -87,6 +89,7 @@ app.use('/api/instances/:instanceId/server/config-history', configHistoryRoutes)
 app.use('/api/instances/:instanceId/savebrowser', savebrowserRoutes);
 app.use('/api/instances/:instanceId/world-save', worldSaveRoutes);
 app.use('/api/instances/:instanceId/pals', palsRoutes);
+app.use('/api/instances/:instanceId/events', eventsRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/instances/:instanceId/server/diagnostics', diagnosticsRoutes);
 
@@ -134,6 +137,7 @@ function bootInstances(): void {
     startWatchdog(inst);
     syncScheduler(inst);
     syncBroadcaster(inst);
+    syncEventScheduler(inst);
     startLogTail(inst);
     startWorldSaveScanner(inst);
     log.info(`[${inst.name}] Services started`);

@@ -1,6 +1,6 @@
 {
   "name": "@palbox/electron",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "license": "GPL-3.0-or-later",
   "description": "Palbox — self-hosted Palworld server management panel (desktop shell)",
   "author": "Palbox contributors",
@@ -42,22 +42,32 @@
       {
         "from": "assets",
         "to": "assets",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "../api/dist",
         "to": "api/dist",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "../api-bundle/node_modules",
         "to": "api/node_modules",
-        "filter": ["**/*", "!.cache/**", "!*.map"]
+        "filter": [
+          "**/*",
+          "!.cache/**",
+          "!*.map"
+        ]
       },
       {
         "from": "../ui/dist",
         "to": "ui/dist",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "../.env.example",
@@ -66,7 +76,12 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "Palbox-Setup-${version}-windows.${ext}",
       "publisherName": "Palbox",
@@ -85,7 +100,12 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "artifactName": "Palbox-${version}-mac-arm64.${ext}",
       "category": "public.app-category.utilities"
@@ -93,14 +113,32 @@
     "dmg": {
       "title": "Palbox ${version}",
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb",      "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "Palbox-${version}-linux-${arch}.${ext}",
       "maintainer": "Palbox contributors <noreply@palbox.dev>",

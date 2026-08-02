@@ -24,6 +24,7 @@ import { Audit } from './views/Audit';
 import { Restarts } from './views/Restarts';
 import { PublicStatus } from './views/PublicStatus';
 import { Triggers } from './views/Triggers';
+import { Events } from './views/Events';
 import { WorldMap } from './views/WorldMap';
 import { Pals } from './views/Pals';
 import { UserManagement } from './views/UserManagement';
@@ -155,6 +156,7 @@ function AppShell() {
             <Route path="/audit"        element={<Audit />} />
             <Route path="/cluster"      element={<Cluster />} />
             <Route path="/triggers"     element={<Triggers />} />
+            <Route path="/events"       element={<Events />} />
             <Route path="/world"        element={<WorldMap />} />
             <Route path="/pals"         element={<Pals />} />
             <Route path="/users"        element={<UserManagement />} />

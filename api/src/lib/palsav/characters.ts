@@ -35,6 +35,12 @@ export interface PalRecord {
   soulCraftSpeed: number;
   passives: string[];
   ownerPlayerId: string | null;
+  /** Container this Pal sits in, which is how base camps claim their workers. */
+  containerId: string | null;
+  /** SAN, 0-100. Absent from the save means full, not zero. */
+  sanity: number;
+  /** Injured, downed, or off work sick. */
+  sick: boolean;
 }
 
 export interface PlayerRecord {
@@ -76,6 +82,31 @@ function genderOf(p?: PropValue): 'Male' | 'Female' | null {
 }
 
 const asProps = (v: unknown): Record<string, PropValue> => (v ?? {}) as Record<string, PropValue>;
+
+/**
+ * Real saves spell this `SlotId` while the tools that write Pals use `SlotID`,
+ * and both turn up in the wild. The container itself is two structs deep.
+ */
+function containerOf(p: Record<string, PropValue>): string | null {
+  const slot = p.SlotId ?? p.SlotID;
+  if (!slot || slot.type !== 'StructProperty') return null;
+  const container = asProps(slot.value).ContainerId;
+  if (!container || container.type !== 'StructProperty') return null;
+  return guidOf(asProps(container.value).ID);
+}
+
+/**
+ * A Pal at its default value is left out of the save rather than written as a
+ * zero, so an absent SanityValue means a Pal that is perfectly happy.
+ */
+function sanityOf(p?: PropValue): number {
+  const v = p?.value;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 100;
+  return Math.max(0, Math.min(100, v));
+}
+
+/** Illness is signalled by these existing at all, not by what they hold. */
+const SICK_MARKERS = ['WorkerSick', 'PalReviveTimer', 'PhysicalHealth'];
 
 /**
  * The character map's keys are a struct rather than a plain GUID, carrying both
@@ -165,6 +196,9 @@ export function parseCharacters(gvas: Buffer): CharacterData {
       // A Pal working a base has no current owner but remembers its captor, so
       // falling back keeps base Pals attributed to the player who caught them.
       ownerPlayerId: guidOf(p.OwnerPlayerUId) ?? lastOldOwner(p.OldOwnerPlayerUIds),
+      containerId: containerOf(p),
+      sanity: sanityOf(p.SanityValue),
+      sick: SICK_MARKERS.some((m) => m in p),
     });
   }
 

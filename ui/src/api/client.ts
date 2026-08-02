@@ -60,6 +60,79 @@ export interface BaseCamp {
   x: number; y: number; z: number;
   areaRange: number;
   state: number;
+  /** Whether the save recorded a worker container for this camp. */
+  hasWorkers: boolean;
+}
+
+/** A Pal working a base camp, with the jobs its species can do. */
+export interface BaseWorker {
+  uid: string;
+  characterId: string;
+  name: string;
+  nickname: string | null;
+  level: number;
+  gender: 'Male' | 'Female' | null;
+  lucky: boolean;
+  boss: boolean;
+  rank: number;
+  workSpeedBonus: number;
+  sanity: number;
+  sick: boolean;
+  work: Record<string, number>;
+}
+
+export interface BaseCampDetail {
+  baseId: string;
+  x: number; y: number; z: number;
+  areaRange: number;
+  state: number;
+  /** False when the save had no worker container, which differs from an empty camp. */
+  workersKnown: boolean;
+  guild: {
+    groupId: string;
+    name: string;
+    baseCampLevel: number;
+    members: { playerId: string; name: string; lastOnline: number | null }[];
+  } | null;
+  workers: BaseWorker[];
+}
+
+/**
+ * A timed rule change. Palworld only reads its settings at boot, so starting
+ * and ending one each cost a server restart.
+ */
+export interface ScheduledEvent {
+  id: number;
+  name: string;
+  description: string;
+  overrides: Record<string, string>;
+  mode: 'weekly' | 'once';
+  start_dow: number;
+  start_time: string;
+  start_at: number | null;
+  duration_hours: number;
+  timezone: string;
+  warn_minutes: number;
+  start_message: string;
+  end_message: string;
+  enabled: boolean;
+  active: boolean;
+  activated_at: number | null;
+  ends_at: number | null;
+  last_error: string | null;
+  nextStart: number | null;
+  inWindow: boolean;
+}
+
+export type EventInput = Omit<
+  ScheduledEvent,
+  'id' | 'active' | 'activated_at' | 'ends_at' | 'last_error' | 'nextStart' | 'inWindow'
+>;
+
+export interface EventsResponse {
+  events: ScheduledEvent[];
+  /** The settings an event is permitted to change. */
+  allowedKeys: string[];
 }
 
 export interface WorldScanStatus {
@@ -316,6 +389,16 @@ export function makeApi(instanceId: number) {
     // Guilds and base camps, read out of Level.sav rather than any live API
     worldSave: () => request<WorldSaveData>(p('/world-save')),
     scanWorldSave: () => request<WorldScanStatus>(p('/world-save/scan'), { method: 'POST' }),
+    baseCamp: (baseId: string) => request<BaseCampDetail>(p(`/world-save/bases/${baseId}`)),
+
+    events: () => request<EventsResponse>(p('/events')),
+    createEvent: (body: EventInput) =>
+      request<ScheduledEvent>(p('/events'), { method: 'POST', body: JSON.stringify(body) }),
+    updateEvent: (id: number, body: Partial<EventInput>) =>
+      request<ScheduledEvent>(p(`/events/${id}`), { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteEvent: (id: number) => request<{ ok: true }>(p(`/events/${id}`), { method: 'DELETE' }),
+    startEvent: (id: number) => request<{ ok: true }>(p(`/events/${id}/start`), { method: 'POST' }),
+    stopEvent: (id: number) => request<{ ok: true }>(p(`/events/${id}/stop`), { method: 'POST' }),
 
     // Pals, also read out of the save. The dex is static reference data.
     pals: () => request<PalsResponse>(p('/pals')),

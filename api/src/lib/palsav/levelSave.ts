@@ -44,6 +44,12 @@ export interface BaseCamp {
   /** Radius of the camp's build area, in world units. */
   areaRange: number;
   state: number;
+  /**
+   * Container the camp's worker Pals sit in. Joining this to a Pal's own
+   * container id is what tells us who works here; there is no field on the Pal
+   * pointing back at the camp.
+   */
+  workerContainerId: Guid | null;
 }
 
 export interface LevelSaveData {
@@ -335,6 +341,28 @@ function tailAt(raw: Buffer, off: number): { areaRange: number; guildId: Guid | 
  * its signature rather than giving up, since a camp in the wrong place would
  * be worse than none at all.
  */
+/**
+ * Pulls the worker container out of a camp's WorkerDirector blob.
+ *
+ * That blob is a fixed layout - a GUID, an FTransform, two enum bytes, then the
+ * container id at offset 98, followed by four trailing bytes added in the 0.6
+ * update. Reading by offset is what every other implementation does; the length
+ * check is what stops a future layout change from returning a plausible-looking
+ * GUID made of the wrong bytes.
+ */
+const WORKER_CONTAINER_OFFSET = 98;
+
+function workerContainerId(entryValue: unknown): Guid | null {
+  const director = asProps(entryValue).WorkerDirector;
+  if (!director || director.type !== 'StructProperty') return null;
+
+  const raw = asProps(director.value).RawData?.value;
+  if (!Buffer.isBuffer(raw) || raw.length < WORKER_CONTAINER_OFFSET + 16) return null;
+
+  const id = new SavReader(raw, WORKER_CONTAINER_OFFSET).guid();
+  return id === NULL_GUID ? null : id;
+}
+
 function decodeBaseCampRawData(raw: Buffer): BaseCamp | null {
   const id = raw.length >= 16 ? new SavReader(raw).guid() : null;
   if (!id) return null;
@@ -362,7 +390,12 @@ function decodeBaseCampRawData(raw: Buffer): BaseCamp | null {
     if (!t) continue;
     const tail = tailAt(raw, off);
     if (!tail) continue;
-    return { id, guildId: tail.guildId, x: t.x, y: t.y, z: t.z, areaRange: tail.areaRange, state };
+    return {
+      id, guildId: tail.guildId,
+      x: t.x, y: t.y, z: t.z,
+      areaRange: tail.areaRange, state,
+      workerContainerId: null,
+    };
   }
   return null;
 }
@@ -402,7 +435,8 @@ function parseBaseCamps(gvas: Buffer): BaseCamp[] {
     if (!Buffer.isBuffer(raw)) continue;
     try {
       const base = decodeBaseCampRawData(raw);
-      if (base) bases.push(base);
+      // The worker container is a sibling property, not part of the camp blob.
+      if (base) bases.push({ ...base, workerContainerId: workerContainerId(entry.value) });
     } catch {
       // Same tolerance as guilds: skip the bad one, keep the good ones.
     }

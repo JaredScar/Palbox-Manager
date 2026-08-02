@@ -182,6 +182,8 @@ nssm start PalboxAPI
 | **Guilds & base camps** | Read straight out of `Level.sav`, including offline members and claimed territory |
 | **Pal Browser** | Every Pal in the world with icons, elements, IVs, passives and owner, filterable and sortable |
 | **Pal spawning** | Give a Pal to a player or drop one on the map — [needs PalDefender](#spawning-pals) |
+| **Base Camp Inspector** | Click a camp on the map for its workers, their sanity and health, and where its work coverage has gaps |
+| **Scheduled events** | Timed rate changes such as a double XP weekend, applied and reverted automatically — [costs two restarts](#scheduled-events) |
 | **Multi-user accounts** | Owner / Operator / Viewer roles with JWT auth |
 | **Two-factor auth** | TOTP (Google Authenticator / Authy) via QR code |
 | **Maintenance mode** | RCON broadcast warnings + whitelist lockdown |
@@ -293,6 +295,32 @@ at a point on the map using the same coordinates the in-game map shows.
 `pals.spawn` is deliberately **not** granted to the Operator role: handing out
 Pals rewrites a server's economy. An owner can grant it per role under
 Users & Roles.
+
+---
+
+## Scheduled events
+
+An event is a window of time during which some `PalWorldSettings.ini` values are
+replaced — double experience over a weekend, a capture rush, faster egg hatching
+— after which the originals are put back.
+
+**This costs two server restarts.** Palworld reads its settings once, at boot,
+and neither RCON nor the REST API can change a rate on a running server. So the
+panel warns players, saves the world, and restarts when the window opens, then
+does the same when it closes. The warning period is per-event.
+
+The values displaced at the start are recorded on the event and restored
+verbatim at the end, so an event never resets a setting to a stock default that
+the server was not already using. Only rate and rule settings can be driven this
+way; ports, passwords and the server name are rejected, since an event changing
+those would lock players out.
+
+Windows are evaluated once a minute rather than fired by a timer at the
+boundary, which means a panel that was restarted or offline across a boundary
+still ends up in the right state. One event runs at a time; overlapping windows
+queue rather than fight over the same setting. If the server is stopped when a
+window opens, the new settings are written and take effect whenever it next
+starts — nothing is booted up behind you.
 
 ---
 

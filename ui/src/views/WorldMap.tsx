@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useInstance } from '../context/InstanceContext';
 import { ViewWrapper } from '../components/layout/ViewWrapper';
 import { PanelSection } from '../components/ui/PanelSection';
+import { BaseCampInspector } from '../components/BaseCampInspector';
 import { cn } from '../lib/cn';
 import type { PalRestPlayer, ServerStatus } from '../api/client';
 import { worldToUv, worldToGameCoords, worldLengthToUv } from '../lib/mapProject';
@@ -35,7 +36,7 @@ function guildColour(guildId: string | null): string {
  * to stay legible.
  */
 function BaseMarker({
-  base, guild, scale, hovered, onEnter, onLeave,
+  base, guild, scale, hovered, onEnter, onLeave, onSelect,
 }: {
   base: BaseCamp;
   guild: Guild | undefined;
@@ -43,6 +44,7 @@ function BaseMarker({
   hovered: boolean;
   onEnter: () => void;
   onLeave: () => void;
+  onSelect: () => void;
 }) {
   const { u, v } = worldToUv(base.x, base.y);
   const colour = guildColour(base.guildId);
@@ -77,6 +79,9 @@ function BaseMarker({
         <div
           className="w-2.5 h-2.5 rotate-45 border cursor-pointer"
           style={{ background: `${colour}dd`, borderColor: '#0b1220' }}
+          // Stopped so selecting a camp does not also start a map drag.
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onSelect(); }}
         />
         {hovered && (
           <div
@@ -301,6 +306,7 @@ export function WorldMap() {
   const [showBases, setShowBases] = useState(true);
   const [scanning,  setScanning]  = useState(false);
   const [hoveredBase, setHoveredBase] = useState<string | null>(null);
+  const [selectedBase, setSelectedBase] = useState<string | null>(null);
 
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -524,6 +530,7 @@ export function WorldMap() {
                     hovered={hoveredBase === b.baseId}
                     onEnter={() => setHoveredBase(b.baseId)}
                     onLeave={() => setHoveredBase(null)}
+                    onSelect={() => setSelectedBase(b.baseId)}
                   />
                 ))}
 
@@ -544,7 +551,11 @@ export function WorldMap() {
                 {active?.name ?? 'Palworld Server'}
               </div>
 
-              <div className="absolute top-3 right-3 flex flex-col gap-1">
+              {/* Shifted aside so the inspector does not sit on top of these */}
+              <div className={cn(
+                'absolute top-3 flex flex-col gap-1 transition-[right]',
+                selectedBase ? 'right-[350px]' : 'right-3',
+              )}>
                 {[
                   { label: '+', title: 'Zoom in',  onClick: () => zoomBy(1.4) },
                   { label: '−', title: 'Zoom out', onClick: () => zoomBy(1 / 1.4) },
@@ -597,6 +608,16 @@ export function WorldMap() {
                     No players currently online
                   </div>
                 </div>
+              )}
+
+              {selectedBase && (
+                <BaseCampInspector
+                  baseId={selectedBase}
+                  colour={guildColour(
+                    world?.bases.find((b) => b.baseId === selectedBase)?.guildId ?? null,
+                  )}
+                  onClose={() => setSelectedBase(null)}
+                />
               )}
 
               {loading && (

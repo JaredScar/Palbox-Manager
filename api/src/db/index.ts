@@ -179,6 +179,7 @@ function applySchema(db: Database.Database): void {
       z           REAL NOT NULL,
       area_range  REAL NOT NULL DEFAULT 0,
       state       INTEGER NOT NULL DEFAULT 0,
+      worker_container_id TEXT,
       updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
       PRIMARY KEY (instance_id, base_id)
     );
@@ -206,11 +207,15 @@ function applySchema(db: Database.Database): void {
       soul_craftspeed INTEGER NOT NULL DEFAULT 0,
       passives        TEXT NOT NULL DEFAULT '[]',
       owner_player_id TEXT,
+      container_id    TEXT,
+      sanity          REAL NOT NULL DEFAULT 100,
+      sick            INTEGER NOT NULL DEFAULT 0,
       updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
       PRIMARY KEY (instance_id, instance_uid)
     );
     CREATE INDEX IF NOT EXISTS idx_pals_owner ON pals(instance_id, owner_player_id);
     CREATE INDEX IF NOT EXISTS idx_pals_character ON pals(instance_id, character_id);
+    CREATE INDEX IF NOT EXISTS idx_pals_container ON pals(instance_id, container_id);
 
     -- Names for the owner ids above, also read from the save.
     CREATE TABLE IF NOT EXISTS save_players (
@@ -363,6 +368,45 @@ function applySchema(db: Database.Database): void {
   addColIfMissing('mods', 'kind',      "TEXT NOT NULL DEFAULT 'ue4ss'");
   addColIfMissing('mods', 'builtin',   'INTEGER NOT NULL DEFAULT 0');
   addColIfMissing('mods', 'rel_path',  "TEXT NOT NULL DEFAULT ''");
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_events (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id   INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL,
+      description   TEXT NOT NULL DEFAULT '',
+      -- Settings this event forces while it runs, as a JSON object of
+      -- PalWorldSettings keys to values.
+      overrides     TEXT NOT NULL DEFAULT '{}',
+      -- 'weekly' repeats on the given weekday; 'once' runs at start_at.
+      mode          TEXT NOT NULL DEFAULT 'weekly',
+      start_dow     INTEGER NOT NULL DEFAULT 5,
+      start_time    TEXT NOT NULL DEFAULT '18:00',
+      start_at      INTEGER,
+      duration_hours REAL NOT NULL DEFAULT 48,
+      timezone      TEXT NOT NULL DEFAULT 'UTC',
+      warn_minutes  INTEGER NOT NULL DEFAULT 5,
+      start_message TEXT NOT NULL DEFAULT '',
+      end_message   TEXT NOT NULL DEFAULT '',
+      enabled       INTEGER NOT NULL DEFAULT 1,
+      -- Live state. saved_settings holds the values displaced at activation so
+      -- they can be put back exactly, rather than reset to a guessed default.
+      active        INTEGER NOT NULL DEFAULT 0,
+      saved_settings TEXT,
+      activated_at  INTEGER,
+      ends_at       INTEGER,
+      last_error    TEXT,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_instance ON scheduled_events(instance_id);
+  `);
+
+  // Base camps gained a worker container, and Pals the container plus the
+  // condition fields, once the camp inspector needed to join the two.
+  addColIfMissing('base_camps', 'worker_container_id', 'TEXT');
+  addColIfMissing('pals', 'container_id', 'TEXT');
+  addColIfMissing('pals', 'sanity', 'REAL NOT NULL DEFAULT 100');
+  addColIfMissing('pals', 'sick',   'INTEGER NOT NULL DEFAULT 0');
 
   // ── Seed built-in roles ───────────────────────────────────────────────────
   for (const roleName of ['owner', 'operator', 'viewer'] as const) {
