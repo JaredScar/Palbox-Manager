@@ -215,7 +215,8 @@ function applySchema(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_pals_owner ON pals(instance_id, owner_player_id);
     CREATE INDEX IF NOT EXISTS idx_pals_character ON pals(instance_id, character_id);
-    CREATE INDEX IF NOT EXISTS idx_pals_container ON pals(instance_id, container_id);
+    -- idx_pals_container is created after the migrations below, since an
+    -- existing database reaches here with a pals table that predates the column.
 
     -- Names for the owner ids above, also read from the save.
     CREATE TABLE IF NOT EXISTS save_players (
@@ -407,6 +408,11 @@ function applySchema(db: Database.Database): void {
   addColIfMissing('pals', 'container_id', 'TEXT');
   addColIfMissing('pals', 'sanity', 'REAL NOT NULL DEFAULT 100');
   addColIfMissing('pals', 'sick',   'INTEGER NOT NULL DEFAULT 0');
+
+  // Indexes over migrated columns have to wait until the columns exist. A
+  // CREATE TABLE IF NOT EXISTS is a no-op on an upgraded database, so anything
+  // indexing a newly added column belongs here rather than beside the table.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pals_container ON pals(instance_id, container_id);');
 
   // ── Seed built-in roles ───────────────────────────────────────────────────
   for (const roleName of ['owner', 'operator', 'viewer'] as const) {
