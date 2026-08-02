@@ -43,6 +43,7 @@ import savebrowserRoutes from './routes/savebrowser.js';
 import worldSaveRoutes from './routes/worldSave.js';
 import searchRoutes from './routes/search.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
+import palsRoutes from './routes/pals.js';
 
 const app = express();
 
@@ -85,6 +86,7 @@ app.use('/api/instances/:instanceId/notifications', notificationsRoutes);
 app.use('/api/instances/:instanceId/server/config-history', configHistoryRoutes);
 app.use('/api/instances/:instanceId/savebrowser', savebrowserRoutes);
 app.use('/api/instances/:instanceId/world-save', worldSaveRoutes);
+app.use('/api/instances/:instanceId/pals', palsRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/instances/:instanceId/server/diagnostics', diagnosticsRoutes);
 

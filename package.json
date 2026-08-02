@@ -1,6 +1,6 @@
 {
   "name": "palbox",
-  "version": "0.8.9",
+  "version": "0.9.0",
   "license": "GPL-3.0-or-later",
   "private": true,
   "workspaces": [

@@ -31,6 +31,7 @@ const PERM_GROUPS: Record<string, string[]> = {
   'Audit':         ['audit.view'],
   'Settings':      ['settings.view','settings.manage'],
   'Cluster/World': ['cluster.view','world.view','config.view'],
+  'Pals':          ['pals.view','pals.spawn'],
   'Notifications': ['notifications.view'],
   'Maintenance':   ['maintenance.manage'],
   'Admin':         ['users.manage','roles.manage'],

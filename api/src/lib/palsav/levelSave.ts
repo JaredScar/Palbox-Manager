@@ -14,6 +14,8 @@ import zlib from 'zlib';
 import { promisify } from 'util';
 import { SavReader, findProperty, NULL_GUID } from './reader.js';
 import type { Guid, MapEntry, PropValue, Vector } from './reader.js';
+import { parseCharacters } from './characters.js';
+import type { CharacterData, PalRecord, PlayerRecord } from './characters.js';
 
 const inflate = promisify(zlib.inflate);
 
@@ -47,6 +49,8 @@ export interface BaseCamp {
 export interface LevelSaveData {
   guilds: Guild[];
   bases: BaseCamp[];
+  pals: PalRecord[];
+  players: PlayerRecord[];
 }
 
 /** Comfortably above any real world, well below anything that would OOM us. */
@@ -406,10 +410,34 @@ function parseBaseCamps(gvas: Buffer): BaseCamp[] {
   return bases;
 }
 
-/** Decompresses and extracts everything the map view needs from a Level.sav. */
+/** Decompresses and extracts everything we read out of a Level.sav. */
 export async function parseLevelSave(data: Buffer): Promise<LevelSaveData> {
   const gvas = await decompressSav(data);
-  return { guilds: parseGuilds(gvas), bases: parseBaseCamps(gvas) };
+  let characters: CharacterData = { pals: [], players: [] };
+  try {
+    characters = parseCharacters(gvas);
+  } catch {
+    // Creature data is the largest and most patch-sensitive part of the file.
+    // Losing it should not also cost the guild and base camp overlay.
+  }
+  return {
+    guilds: parseGuilds(gvas),
+    bases: parseBaseCamps(gvas),
+    pals: characters.pals,
+    players: characters.players,
+  };
+}
+
+/**
+ * Reads a player's Pal storage file.
+ *
+ * Depositing a Pal into the Pal box removes it from the world's character map
+ * entirely and moves it into Players/<uid>_dps.sav, so a browser that only read
+ * Level.sav would show an empty Pal box for anyone who uses one. The records
+ * themselves have the same shape, so the same decoder handles both.
+ */
+export async function parsePalStorage(data: Buffer): Promise<PalRecord[]> {
+  return parseCharacters(await decompressSav(data)).pals;
 }
 
 export { parseGuilds, parseBaseCamps };

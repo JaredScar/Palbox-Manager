@@ -10,7 +10,8 @@ import fs from 'fs';
 import path from 'path';
 import { getDb } from '../db/index.js';
 import { log } from '../lib/logger.js';
-import { parseLevelSave } from '../lib/palsav/levelSave.js';
+import { parseLevelSave, parsePalStorage } from '../lib/palsav/levelSave.js';
+import type { PalRecord } from '../lib/palsav/characters.js';
 import type { Instance } from '../db/types.js';
 
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
@@ -31,8 +32,14 @@ export interface ScanStatus {
   savedAt: number | null;
   guilds: number;
   bases: number;
+  pals: number;
   error: string | null;
   scanning: boolean;
+}
+
+/** A status for a scan that could not run, so callers always get the shape. */
+function failed(file: string | null, savedAt: number | null, error: string): ScanStatus {
+  return { file, scannedAt: Date.now(), savedAt, guilds: 0, bases: 0, pals: 0, error, scanning: false };
 }
 
 /**
@@ -79,6 +86,46 @@ export function findLevelSave(inst: Instance): string | null {
   return found[0]?.file ?? null;
 }
 
+/** Player save file names are a GUID with the dashes stripped. */
+function uidFromFileName(name: string): string | null {
+  const hex = name.replace(/_dps\.sav$/i, '').replace(/\.sav$/i, '');
+  if (!/^[0-9a-f]{32}$/i.test(hex)) return null;
+  const g = hex.toLowerCase();
+  return `${g.slice(0, 8)}-${g.slice(8, 12)}-${g.slice(12, 16)}-${g.slice(16, 20)}-${g.slice(20)}`;
+}
+
+/**
+ * Reads the Pal box storage that sits beside a world save.
+ *
+ * Failures here are per-file and silent by design: an unreadable storage file
+ * should cost that player's Pal box, not the whole scan.
+ */
+async function readPalStorage(levelSaveFile: string): Promise<PalRecord[]> {
+  const dir = path.join(path.dirname(levelSaveFile), 'Players');
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir).filter((f) => /_dps\.sav$/i.test(f));
+  } catch {
+    return [];
+  }
+
+  const out: PalRecord[] = [];
+  for (const file of files) {
+    const full = path.join(dir, file);
+    try {
+      if (fs.statSync(full).size > MAX_SAVE_BYTES) continue;
+      const pals = await parsePalStorage(await fs.promises.readFile(full));
+      // Stored Pals often have no owner recorded on the record itself, so the
+      // file they live in is what attributes them.
+      const owner = uidFromFileName(file);
+      for (const p of pals) out.push({ ...p, ownerPlayerId: p.ownerPlayerId ?? owner });
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
 function persist(instanceId: number, data: Awaited<ReturnType<typeof parseLevelSave>>): void {
   const db = getDb();
   // Replaced in one transaction so a reader never sees a half-updated world.
@@ -104,6 +151,34 @@ function persist(instanceId: number, data: Awaited<ReturnType<typeof parseLevelS
     for (const b of data.bases) {
       insBase.run(instanceId, b.id, b.guildId, b.x, b.y, b.z, b.areaRange, b.state);
     }
+
+    db.prepare('DELETE FROM pals WHERE instance_id = ?').run(instanceId);
+    const insPal = db.prepare(
+      `INSERT OR REPLACE INTO pals (
+         instance_id, instance_uid, character_id, nickname, level, exp, gender,
+         lucky, boss, rank, talent_hp, talent_melee, talent_shot, talent_defense,
+         soul_hp, soul_attack, soul_defence, soul_craftspeed, passives,
+         owner_player_id, updated_at
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+    );
+    for (const p of data.pals) {
+      insPal.run(
+        instanceId, p.instanceId, p.characterId, p.nickname, p.level, p.exp, p.gender,
+        p.lucky ? 1 : 0, p.boss ? 1 : 0, p.rank,
+        p.talentHp, p.talentMelee, p.talentShot, p.talentDefense,
+        p.soulHp, p.soulAttack, p.soulDefence, p.soulCraftSpeed,
+        JSON.stringify(p.passives), p.ownerPlayerId,
+      );
+    }
+
+    db.prepare('DELETE FROM save_players WHERE instance_id = ?').run(instanceId);
+    const insPlayer = db.prepare(
+      `INSERT OR REPLACE INTO save_players (instance_id, player_id, name, level, exp, updated_at)
+       VALUES (?,?,?,?,?,unixepoch())`,
+    );
+    for (const pl of data.players) {
+      insPlayer.run(instanceId, pl.playerId, pl.name, pl.level, pl.exp);
+    }
   });
   write();
 }
@@ -118,13 +193,9 @@ export async function scanWorldSave(inst: Instance, force = false): Promise<Scan
 
   const file = findLevelSave(inst);
   if (!file) {
-    const s: ScanStatus = {
-      file: null, scannedAt: Date.now(), savedAt: null, guilds: 0, bases: 0,
-      error: inst.save_dir
-        ? `No Level.sav found under ${inst.save_dir}. Check the save directory in instance settings.`
-        : 'No save directory configured for this instance.',
-      scanning: false,
-    };
+    const s = failed(null, null, inst.save_dir
+      ? `No Level.sav found under ${inst.save_dir}. Check the save directory in instance settings.`
+      : 'No save directory configured for this instance.');
     status.set(inst.id, s);
     return s;
   }
@@ -136,10 +207,7 @@ export async function scanWorldSave(inst: Instance, force = false): Promise<Scan
     mtime = st.mtimeMs;
     size = st.size;
   } catch (e) {
-    const s: ScanStatus = {
-      file, scannedAt: Date.now(), savedAt: null, guilds: 0, bases: 0,
-      error: `Could not read ${file}: ${(e as Error).message}`, scanning: false,
-    };
+    const s = failed(file, null, `Could not read ${file}: ${(e as Error).message}`);
     status.set(inst.id, s);
     return s;
   }
@@ -147,11 +215,8 @@ export async function scanWorldSave(inst: Instance, force = false): Promise<Scan
   if (!force && lastScanned.get(inst.id) === mtime && current && !current.error) return current;
 
   if (size > MAX_SAVE_BYTES) {
-    const s: ScanStatus = {
-      file, scannedAt: Date.now(), savedAt: mtime, guilds: 0, bases: 0,
-      error: `Level.sav is ${(size / 1024 / 1024).toFixed(0)} MB, above the ${MAX_SAVE_BYTES / 1024 / 1024} MB limit for scanning.`,
-      scanning: false,
-    };
+    const s = failed(file, mtime,
+      `Level.sav is ${(size / 1024 / 1024).toFixed(0)} MB, above the ${MAX_SAVE_BYTES / 1024 / 1024} MB limit for scanning.`);
     status.set(inst.id, s);
     return s;
   }
@@ -162,6 +227,7 @@ export async function scanWorldSave(inst: Instance, force = false): Promise<Scan
     scannedAt: current?.scannedAt ?? null,
     guilds: current?.guilds ?? 0,
     bases: current?.bases ?? 0,
+    pals: current?.pals ?? 0,
     error: null,
     scanning: true,
   });
@@ -169,25 +235,29 @@ export async function scanWorldSave(inst: Instance, force = false): Promise<Scan
   try {
     const started = Date.now();
     const data = await parseLevelSave(await fs.promises.readFile(file));
+
+    // Merge in the Pal boxes, skipping anything the world already accounted for.
+    const seen = new Set(data.pals.map((p) => p.instanceId));
+    for (const p of await readPalStorage(file)) {
+      if (!seen.has(p.instanceId)) { seen.add(p.instanceId); data.pals.push(p); }
+    }
+
     persist(inst.id, data);
     lastScanned.set(inst.id, mtime);
 
     const s: ScanStatus = {
       file, scannedAt: Date.now(), savedAt: mtime,
-      guilds: data.guilds.length, bases: data.bases.length,
+      guilds: data.guilds.length, bases: data.bases.length, pals: data.pals.length,
       error: null, scanning: false,
     };
     status.set(inst.id, s);
     log.info(
       `[${inst.name}] World save scanned in ${Date.now() - started}ms: ` +
-      `${data.guilds.length} guild(s), ${data.bases.length} base camp(s)`,
+      `${data.guilds.length} guild(s), ${data.bases.length} base camp(s), ${data.pals.length} pal(s)`,
     );
     return s;
   } catch (e) {
-    const s: ScanStatus = {
-      file, scannedAt: Date.now(), savedAt: mtime, guilds: 0, bases: 0,
-      error: `Could not read the world save: ${(e as Error).message}`, scanning: false,
-    };
+    const s = failed(file, mtime, `Could not read the world save: ${(e as Error).message}`);
     status.set(inst.id, s);
     log.warn(`[${inst.name}] World save scan failed:`, e);
     return s;

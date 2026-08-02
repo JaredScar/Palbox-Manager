@@ -15,3 +15,5 @@ staging/
 release-notes.md
 *.zip
 PalboxUpdate/
+# Download cache for scripts/build-paldex.mjs; its outputs are committed instead
+.cache/

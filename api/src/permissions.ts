@@ -32,6 +32,8 @@ export const ALL_PERMISSIONS = [
   'maintenance.manage',
   // Cluster / World map / Config history / Notifications
   'cluster.view',   'world.view',  'config.view',  'notifications.view',
+  // Pals read from the world save, and spawning them (needs the PalDefender mod)
+  'pals.view',      'pals.spawn',
 ] as const;
 
 export type Permission = typeof ALL_PERMISSIONS[number];
@@ -49,6 +51,7 @@ const VIEWER_PERMS: Permission[] = [
   'audit.view',
   'settings.view',
   'cluster.view', 'world.view', 'config.view', 'notifications.view',
+  'pals.view',
 ];
 
 const OPERATOR_PERMS: Permission[] = [
@@ -62,6 +65,8 @@ const OPERATOR_PERMS: Permission[] = [
   'broadcasts.manage', 'alerts.manage',
   'triggers.manage',
   'maintenance.manage',
+  // Not pals.spawn: handing out Pals rewrites the server economy, so it stays
+  // an owner-granted power rather than something every operator has.
 ];
 
 const OWNER_PERMS: Permission[] = ALL_PERMISSIONS as unknown as Permission[];

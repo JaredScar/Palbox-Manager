@@ -183,6 +183,46 @@ function applySchema(db: Database.Database): void {
       PRIMARY KEY (instance_id, base_id)
     );
 
+    -- ── Pals read from the world save ────────────────────────────────────────
+    -- A cache, rebuilt on every scan, so the save stays the source of truth.
+    CREATE TABLE IF NOT EXISTS pals (
+      instance_id     INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+      instance_uid    TEXT NOT NULL,
+      character_id    TEXT NOT NULL,
+      nickname        TEXT,
+      level           INTEGER NOT NULL DEFAULT 1,
+      exp             INTEGER NOT NULL DEFAULT 0,
+      gender          TEXT,
+      lucky           INTEGER NOT NULL DEFAULT 0,
+      boss            INTEGER NOT NULL DEFAULT 0,
+      rank            INTEGER NOT NULL DEFAULT 1,
+      talent_hp       INTEGER NOT NULL DEFAULT 0,
+      talent_melee    INTEGER NOT NULL DEFAULT 0,
+      talent_shot     INTEGER NOT NULL DEFAULT 0,
+      talent_defense  INTEGER NOT NULL DEFAULT 0,
+      soul_hp         INTEGER NOT NULL DEFAULT 0,
+      soul_attack     INTEGER NOT NULL DEFAULT 0,
+      soul_defence    INTEGER NOT NULL DEFAULT 0,
+      soul_craftspeed INTEGER NOT NULL DEFAULT 0,
+      passives        TEXT NOT NULL DEFAULT '[]',
+      owner_player_id TEXT,
+      updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (instance_id, instance_uid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pals_owner ON pals(instance_id, owner_player_id);
+    CREATE INDEX IF NOT EXISTS idx_pals_character ON pals(instance_id, character_id);
+
+    -- Names for the owner ids above, also read from the save.
+    CREATE TABLE IF NOT EXISTS save_players (
+      instance_id INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+      player_id   TEXT NOT NULL,
+      name        TEXT NOT NULL DEFAULT '',
+      level       INTEGER NOT NULL DEFAULT 1,
+      exp         INTEGER NOT NULL DEFAULT 0,
+      updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (instance_id, player_id)
+    );
+
     -- ── Alert rules ──────────────────────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS alert_rules (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

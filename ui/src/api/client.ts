@@ -78,6 +78,72 @@ export interface WorldSaveData {
   scan: WorldScanStatus | null;
 }
 
+/** Static reference data for a species, generated from the game's own tables. */
+export interface PalDexEntry {
+  name: string;
+  tribe: string;
+  dex: number;
+  elements: string[];
+  rarity: number;
+  boss: boolean;
+  raid: boolean;
+  nocturnal: boolean;
+  icon: string | null;
+  hp: number;
+  attack: number;
+  defense: number;
+  work: Record<string, number>;
+}
+
+/** One creature as it exists in the world save. */
+export interface Pal {
+  uid: string;
+  characterId: string;
+  name: string;
+  nickname: string | null;
+  level: number;
+  gender: 'Male' | 'Female' | null;
+  lucky: boolean;
+  boss: boolean;
+  rank: number;
+  ivs: { hp: number; melee: number; shot: number; defense: number };
+  souls: { hp: number; attack: number; defence: number; craftSpeed: number };
+  passives: string[];
+  ownerPlayerId: string | null;
+}
+
+export interface PalOwner {
+  playerId: string;
+  name: string;
+  level: number;
+}
+
+export interface PalsResponse {
+  pals: Pal[];
+  owners: PalOwner[];
+}
+
+/** Whether the server can spawn Pals at all, which needs the PalDefender mod. */
+export interface PalSpawnCapability {
+  available: boolean;
+  commands: string[];
+  detail: string;
+}
+
+export interface PalSpawnTarget {
+  name: string;
+  playerUid: string;
+  level: number;
+}
+
+export interface SpawnPalRequest {
+  characterId: string;
+  level: number;
+  playerUid?: string;
+  x?: number;
+  y?: number;
+}
+
 export function makeApi(instanceId: number) {
   const p = (path: string) => `/instances/${instanceId}${path}`;
 
@@ -250,6 +316,17 @@ export function makeApi(instanceId: number) {
     // Guilds and base camps, read out of Level.sav rather than any live API
     worldSave: () => request<WorldSaveData>(p('/world-save')),
     scanWorldSave: () => request<WorldScanStatus>(p('/world-save/scan'), { method: 'POST' }),
+
+    // Pals, also read out of the save. The dex is static reference data.
+    pals: () => request<PalsResponse>(p('/pals')),
+    palDex: () => request<Record<string, PalDexEntry>>(p('/pals/dex')),
+    palSpawnCapability: () => request<PalSpawnCapability>(p('/pals/spawn-capability')),
+    palSpawnTargets: () => request<PalSpawnTarget[]>(p('/pals/targets')),
+    spawnPal: (body: SpawnPalRequest) =>
+      request<{ ok: boolean; result: string }>(p('/pals/spawn'), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
 
     // Connection diagnostics — probes can legitimately take a few seconds each,
     // so this gets a longer budget than the default request timeout.

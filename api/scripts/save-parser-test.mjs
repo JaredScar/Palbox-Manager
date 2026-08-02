@@ -128,6 +128,105 @@ function mapProperty(name, entries) {
   );
 }
 
+// ── Character map ────────────────────────────────────────────────────────────
+// Its keys are a struct of two GUIDs rather than the bare GUID the other maps
+// use, which is the case the reader has to be told about.
+function characterKey(playerId, instanceId) {
+  return new Writer()
+    .raw(property('PlayerUId', 'StructProperty',
+      new Writer().fstring('Guid').raw(Buffer.alloc(16)).noGuid().done(),
+      new Writer().guid(playerId).done()))
+    .raw(property('InstanceId', 'StructProperty',
+      new Writer().fstring('Guid').raw(Buffer.alloc(16)).noGuid().done(),
+      new Writer().guid(instanceId).done()))
+    .fstring('None')
+    .done();
+}
+
+const intProp   = (n, v) => property(n, 'IntProperty', new Writer().noGuid().done(), new Writer().i32(v).done());
+const boolProp  = (n, v) => property(n, 'BoolProperty', new Writer().done(), new Writer().u8(v ? 1 : 0).u8(0).done());
+const strProp   = (n, v) => property(n, 'StrProperty', new Writer().noGuid().done(), new Writer().fstring(v).done());
+const nameProp  = (n, v) => property(n, 'NameProperty', new Writer().noGuid().done(), new Writer().fstring(v).done());
+const enumProp  = (n, t, v) => property(n, 'EnumProperty', new Writer().fstring(t).noGuid().done(), new Writer().fstring(v).done());
+const guidProp  = (n, v) => property(n, 'StructProperty',
+  new Writer().fstring('Guid').raw(Buffer.alloc(16)).noGuid().done(),
+  new Writer().guid(v).done());
+const nameArray = (n, list) => property(n, 'ArrayProperty',
+  new Writer().fstring('NameProperty').noGuid().done(),
+  (() => { const w = new Writer().u32(list.length); for (const s of list) w.fstring(s); return w.done(); })());
+const guidArray = (n, list) => property(n, 'ArrayProperty',
+  new Writer().fstring('Guid').noGuid().done(),
+  (() => { const w = new Writer().u32(list.length); for (const g of list) w.guid(g); return w.done(); })());
+
+/**
+ * A Set is what Palworld 1.0 uses for the Pal-box locker index. It has to be
+ * skipped by its declared size or everything after it is misread.
+ */
+function setProp(name, payloadBytes) {
+  return property(name, 'SetProperty',
+    new Writer().fstring('StructProperty').noGuid().done(),
+    Buffer.alloc(payloadBytes, 0x5a));
+}
+
+function palRawData(p, opts = {}) {
+  const inner = new Writer()
+    .raw(nameProp('CharacterID', p.characterId))
+    .raw(boolProp('IsRarePal', !!p.lucky))
+    .raw(intProp('Level', p.level))
+    .raw(intProp('Exp', p.exp ?? 0))
+    .raw(intProp('Rank', p.rank ?? 1))
+    .raw(enumProp('Gender', 'EPalGenderType', `EPalGenderType::${p.gender}`))
+    .raw(intProp('Talent_HP', p.ivs[0]))
+    .raw(intProp('Talent_Melee', p.ivs[1]))
+    .raw(intProp('Talent_Shot', p.ivs[2]))
+    .raw(intProp('Talent_Defense', p.ivs[3]));
+
+  if (opts.withSet) inner.raw(setProp('InLockerCharacterInstanceIDArray', 24));
+
+  inner.raw(nameArray('PassiveSkillList', p.passives ?? []));
+  if (p.nickname) inner.raw(strProp('NickName', p.nickname));
+  if (p.owner) inner.raw(guidProp('OwnerPlayerUId', p.owner));
+  if (p.oldOwners) inner.raw(guidArray('OldOwnerPlayerUIds', p.oldOwners));
+  inner.fstring('None');
+
+  const w = new Writer()
+    .raw(property('SaveParameter', 'StructProperty',
+      new Writer().fstring('PalIndividualCharacterSaveParameter').raw(Buffer.alloc(16)).noGuid().done(),
+      inner.done()))
+    .fstring('None');
+
+  // 1.0 appends fields after the property list; the None sentinel ends it and
+  // the extra bytes must simply be ignored.
+  if (opts.trailing) w.raw(Buffer.alloc(opts.trailing, 0x33));
+  return w.done();
+}
+
+function playerRawData(pl) {
+  const inner = new Writer()
+    .raw(boolProp('IsPlayer', true))
+    .raw(strProp('NickName', pl.name))
+    .raw(intProp('Level', pl.level))
+    .raw(intProp('Exp', pl.exp ?? 0))
+    .fstring('None');
+  return new Writer()
+    .raw(property('SaveParameter', 'StructProperty',
+      new Writer().fstring('PalIndividualCharacterSaveParameter').raw(Buffer.alloc(16)).noGuid().done(),
+      inner.done()))
+    .fstring('None')
+    .done();
+}
+
+function characterMap(entries) {
+  const payload = new Writer();
+  payload.u32(0).u32(entries.length);
+  for (const e of entries) payload.raw(characterKey(e.playerId, e.instanceId)).raw(entryValue(null, e.raw));
+  return property(
+    'CharacterSaveParameterMap', 'MapProperty',
+    new Writer().fstring('StructProperty').fstring('StructProperty').noGuid().done(),
+    payload.done(),
+  );
+}
+
 function buildSav(body, saveType = 0x31, magic = 'PlZ') {
   let compressed = zlib.deflateSync(body);
   if (saveType === 0x32) compressed = zlib.deflateSync(compressed);
@@ -166,6 +265,36 @@ const decoy = new Writer().fstring('GroupSaveDataMap').fstring('StrProperty').do
 
 const org = { groupId: ORG_ID, groupName: 'org', baseIds: [] };
 
+const PAL_A = '11111111-aaaa-bbbb-cccc-000000000001';
+const PAL_B = '22222222-aaaa-bbbb-cccc-000000000002';
+const PAL_C = '33333333-aaaa-bbbb-cccc-000000000003';
+
+const palFixtures = [
+  {
+    playerId: ADMIN, instanceId: PAL_A,
+    raw: palRawData({
+      characterId: 'SheepBall', nickname: 'Fluff', level: 24, exp: 400, rank: 3,
+      gender: 'Female', lucky: true, ivs: [70, 40, 55, 60],
+      passives: ['PAL_ALLAttack_up2', 'Legend'], owner: ADMIN,
+    }, { withSet: true, trailing: 16 }),
+  },
+  {
+    playerId: MEMBER, instanceId: PAL_B,
+    raw: palRawData({
+      characterId: 'BOSS_Anubis', level: 45, rank: 1, gender: 'Male',
+      ivs: [90, 95, 20, 30], owner: MEMBER,
+    }),
+  },
+  {
+    // A base worker: no current owner, but it remembers who caught it.
+    playerId: ADMIN, instanceId: PAL_C,
+    raw: palRawData({
+      characterId: 'PinkCat', level: 7, rank: 1, gender: 'Male',
+      ivs: [10, 10, 10, 10], oldOwners: [MEMBER],
+    }),
+  },
+];
+
 /** A whole world file, in either the pre-1.0 or the 1.0 guild layout. */
 function buildBody(layout, basePad = 0) {
   return Buffer.concat([
@@ -178,6 +307,10 @@ function buildBody(layout, basePad = 0) {
     mapProperty('BaseCampSaveData', bases.map((b) => ({
       key: b.id, value: entryValue(null, baseCampRawData(b, basePad)),
     }))),
+    characterMap([
+      ...palFixtures,
+      { playerId: ADMIN, instanceId: 'aaaa0000-0000-0000-0000-000000000001', raw: playerRawData({ name: 'Badger', level: 38, exp: 9000 }) },
+    ]),
     new Writer().fstring('None').done(),
   ]);
 }
@@ -222,6 +355,34 @@ async function run() {
     check(`[${label}] base area range`, a?.areaRange, 2200);
     check(`[${label}] base joins to guild`, a?.guildId, GUILD_ID);
     check(`[${label}] base state`, a?.state, 1);
+  }
+
+  // Pals and players out of the character map.
+  {
+    const { pals, players } = await parseLevelSave(buildSav(body));
+    const byId = Object.fromEntries(pals.map((p) => [p.instanceId, p]));
+    const a = byId[PAL_A];
+
+    check('pal count excludes players', pals.length, 3);
+    check('player extracted separately', players.length, 1);
+    check('player name', players[0]?.name, 'Badger');
+    check('player level', players[0]?.level, 38);
+
+    check('pal character id', a?.characterId, 'SheepBall');
+    check('pal nickname', a?.nickname, 'Fluff');
+    check('pal level', a?.level, 24);
+    check('pal rank', a?.rank, 3);
+    check('pal gender', a?.gender, 'Female');
+    check('pal lucky', a?.lucky, true);
+    check('pal is not boss', a?.boss, false);
+    check('pal ivs', JSON.stringify([a?.talentHp, a?.talentMelee, a?.talentShot, a?.talentDefense]), '[70,40,55,60]');
+    check('pal passives', JSON.stringify(a?.passives), '["PAL_ALLAttack_up2","Legend"]');
+    check('pal owner', a?.ownerPlayerId, ADMIN);
+
+    check('alpha detected from id', byId[PAL_B]?.boss, true);
+    check('alpha level', byId[PAL_B]?.level, 45);
+    // A base worker has no OwnerPlayerUId, so it must fall back to its captor.
+    check('base pal falls back to previous owner', byId[PAL_C]?.ownerPlayerId, MEMBER);
   }
 
   // A Palworld 1.0 world, with the two inserted guild fields. The layout has

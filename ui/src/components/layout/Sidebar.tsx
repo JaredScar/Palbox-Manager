@@ -15,6 +15,7 @@ const NAV = [
   { path: '/metrics',     label: 'Metrics',      accent: '#2fd9e8', icon: <MetricsIcon />,    permission: 'metrics.view' },
   { path: '/triggers',    label: 'Triggers',     accent: '#f43f5e', icon: <TriggersIcon />,   permission: 'triggers.manage' },
   { path: '/world',       label: 'World Map',    accent: '#22d3ee', icon: <WorldIcon />,      permission: 'world.view' },
+  { path: '/pals',        label: 'Pals',         accent: '#5eead4', icon: <PalsIcon />,       permission: 'pals.view' },
   { path: '/mods',        label: 'Mods',         accent: '#3fd8b4', icon: <ModsIcon />,       permission: 'mods.view' },
   { path: '/console',     label: 'Console',      accent: '#7ce666', icon: <ConsoleIcon />,    permission: 'console.view' },
   { path: '/cluster',     label: 'Cluster',      accent: '#ff9d3d', icon: <ClusterIcon />,    permission: 'cluster.view' },
@@ -161,5 +162,7 @@ function SettingsIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="cu
 function TriggersIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>; }
 function WorldIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14.5 14.5 0 010 18M12 3a14.5 14.5 0 000 18"/></svg>; }
 function BanIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M4.93 4.93l14.14 14.14"/></svg>; }
+/** A Pal Sphere. */
+function PalsIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M3 12h6M15 12h6"/><circle cx="12" cy="12" r="3"/></svg>; }
 function UsersIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M23 11l-2.5 2.5-1.5-1.5"/></svg>; }
 function SaveBrowserIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/><path strokeLinecap="round" strokeLinejoin="round" d="M12 11v6m-3-3l3 3 3-3"/></svg>; }

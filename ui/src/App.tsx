@@ -25,6 +25,7 @@ import { Restarts } from './views/Restarts';
 import { PublicStatus } from './views/PublicStatus';
 import { Triggers } from './views/Triggers';
 import { WorldMap } from './views/WorldMap';
+import { Pals } from './views/Pals';
 import { UserManagement } from './views/UserManagement';
 import Cluster from './views/Cluster';
 import { NotificationBell } from './components/NotificationBell';
@@ -155,6 +156,7 @@ function AppShell() {
             <Route path="/cluster"      element={<Cluster />} />
             <Route path="/triggers"     element={<Triggers />} />
             <Route path="/world"        element={<WorldMap />} />
+            <Route path="/pals"         element={<Pals />} />
             <Route path="/users"        element={<UserManagement />} />
             <Route path="*"             element={<Navigate to="/" replace />} />
           </Routes>

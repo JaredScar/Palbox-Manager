@@ -1,12 +1,12 @@
 {
   "name": "@palbox/api",
-  "version": "0.8.9",
+  "version": "0.9.0",
   "license": "GPL-3.0-or-later",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && npm run check:update-script && npm run test:saveparser",
+    "build": "tsc && node scripts/copy-data.mjs && npm run check:update-script && npm run test:saveparser",
     "check:update-script": "node scripts/validate-update-script.mjs",
     "test:saveparser": "node scripts/save-parser-test.mjs",
     "test:rcon": "node scripts/rcon-strategy-test.mjs",

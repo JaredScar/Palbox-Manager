@@ -112,7 +112,7 @@ export class SavReader {
    * property occupies, because the reader stays positioned for whatever comes
    * next - a type handled loosely here desynchronises everything after it.
    */
-  property(type: string, size: number): PropValue {
+  property(type: string, size: number, opts?: PropertyOptions): PropValue {
     switch (type) {
       case 'StructProperty': {
         const structType = this.fstring();
@@ -156,11 +156,23 @@ export class SavReader {
         const count = this.u32();
         const entries: MapEntry[] = [];
         for (let i = 0; i < count; i++) {
-          const key = this.mapHalf(keyType, 'Guid');
+          // Which struct a map key holds is not recorded in the file; it is a
+          // property of the map itself, so the caller has to say.
+          const key = this.mapHalf(keyType, opts?.keyStruct ?? 'Guid');
           const value = this.mapHalf(valueType, 'StructProperty');
           entries.push({ key, value });
         }
         return { type, value: entries };
+      }
+      case 'SetProperty': {
+        // Palworld 1.0 writes the Pal-box locker index as a Set. Nothing here
+        // needs it, but it has to be consumed exactly or every property after
+        // it is misread. The header matches ArrayProperty's; `size` covers the
+        // payload that follows.
+        this.fstring();         // element type
+        this.optionalGuid();
+        this.skip(size);
+        return { type, value: null };
       }
       case 'EnumProperty': {
         this.fstring();         // enum type
@@ -194,6 +206,10 @@ export class SavReader {
       case 'Int64Property':
         this.optionalGuid();
         return { type, value: this.i64() };
+      case 'UInt64Property':
+        // PlayStation players carry PsnAccountId as one of these.
+        this.optionalGuid();
+        return { type, value: this.u64() };
       case 'FloatProperty':
         this.optionalGuid();
         return { type, value: this.f32() };
@@ -235,6 +251,15 @@ export class SavReader {
 
 export interface PropValue { type: string; value: unknown }
 export interface MapEntry { key: unknown; value: unknown }
+
+export interface PropertyOptions {
+  /**
+   * Struct type of a MapProperty's keys. "Guid" reads a bare GUID; any other
+   * name falls through to a nested property block, which is what maps keyed on
+   * a composite struct (such as the character map) use.
+   */
+  keyStruct?: string;
+}
 
 /**
  * Byte pattern of a property name as it appears in the file: an FString of the
