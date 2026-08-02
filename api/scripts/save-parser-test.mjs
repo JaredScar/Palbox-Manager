@@ -58,14 +58,20 @@ function property(name, type, header, payload) {
     .done();
 }
 
-function guildRawData(g) {
+/**
+ * Palworld 1.0 inserted a 4-byte field before the base id list and another
+ * before the base camp level. `layout` picks which era to emit.
+ */
+function guildRawData(g, layout = 'legacy') {
   const w = new Writer()
     .guid(g.groupId)
     .fstring(g.groupName)
     .u32(0)                       // character handle ids
-    .u8(0)                        // org type
-    .tarrayGuid(g.baseIds)
-    .i32(g.baseCampLevel)
+    .u8(0);                       // org type
+  if (layout === 'v1') w.i32(0);
+  w.tarrayGuid(g.baseIds);
+  if (layout === 'v1') w.i32(0);
+  w.i32(g.baseCampLevel)
     .tarrayGuid([])               // base camp point instance ids
     .fstring(g.guildName)
     .guid(g.adminPlayerId)
@@ -74,16 +80,17 @@ function guildRawData(g) {
   return w.done();
 }
 
-function orgRawData(o) {
-  return new Writer()
-    .guid(o.groupId).fstring(o.groupName).u32(0)
-    .u8(1).tarrayGuid(o.baseIds)
-    .done();
+function orgRawData(o, layout = 'legacy') {
+  const w = new Writer().guid(o.groupId).fstring(o.groupName).u32(0).u8(1);
+  if (layout === 'v1') w.i32(0);
+  return w.tarrayGuid(o.baseIds).done();
 }
 
-function baseCampRawData(b) {
-  return new Writer()
-    .guid(b.id).fstring('').u8(b.state)
+/** `pad` simulates a future patch inserting fields ahead of the transform. */
+function baseCampRawData(b, pad = 0) {
+  const w = new Writer().guid(b.id).fstring('').u8(b.state);
+  for (let i = 0; i < pad; i++) w.u8(0x7f);
+  return w
     .ftransform(b.x, b.y, b.z)
     .f32(b.areaRange)
     .guid(b.guildId)
@@ -121,12 +128,12 @@ function mapProperty(name, entries) {
   );
 }
 
-function buildSav(body, saveType = 0x31) {
+function buildSav(body, saveType = 0x31, magic = 'PlZ') {
   let compressed = zlib.deflateSync(body);
   if (saveType === 0x32) compressed = zlib.deflateSync(compressed);
   return Buffer.concat([
     new Writer().u32(body.length).u32(saveType === 0x32 ? zlib.deflateSync(body).length : compressed.length).done(),
-    Buffer.from('PlZ', 'latin1'), Buffer.from([saveType]),
+    Buffer.from(magic, 'latin1'), Buffer.from([saveType]),
     compressed,
   ]);
 }
@@ -157,16 +164,25 @@ const bases = [
 // type tag that must follow rather than trusting the first byte match.
 const decoy = new Writer().fstring('GroupSaveDataMap').fstring('StrProperty').done();
 
-const body = Buffer.concat([
-  Buffer.from('GVAS'), Buffer.alloc(64),  // header stand-in; the parser scans past it
-  decoy,
-  mapProperty('GroupSaveDataMap', [
-    { key: GUILD_ID, value: entryValue('EPalGroupType::Guild', guildRawData(guild)) },
-    { key: ORG_ID,   value: entryValue('EPalGroupType::Organization', orgRawData({ groupId: ORG_ID, groupName: 'org', baseIds: [] })) },
-  ]),
-  mapProperty('BaseCampSaveData', bases.map((b) => ({ key: b.id, value: entryValue(null, baseCampRawData(b)) }))),
-  new Writer().fstring('None').done(),
-]);
+const org = { groupId: ORG_ID, groupName: 'org', baseIds: [] };
+
+/** A whole world file, in either the pre-1.0 or the 1.0 guild layout. */
+function buildBody(layout, basePad = 0) {
+  return Buffer.concat([
+    Buffer.from('GVAS'), Buffer.alloc(64),  // header stand-in; the parser scans past it
+    decoy,
+    mapProperty('GroupSaveDataMap', [
+      { key: GUILD_ID, value: entryValue('EPalGroupType::Guild', guildRawData(guild, layout)) },
+      { key: ORG_ID,   value: entryValue('EPalGroupType::Organization', orgRawData(org, layout)) },
+    ]),
+    mapProperty('BaseCampSaveData', bases.map((b) => ({
+      key: b.id, value: entryValue(null, baseCampRawData(b, basePad)),
+    }))),
+    new Writer().fstring('None').done(),
+  ]);
+}
+
+const body = buildBody('legacy');
 
 // ── Checks ───────────────────────────────────────────────────────────────────
 let failures = 0;
@@ -208,14 +224,54 @@ async function run() {
     check(`[${label}] base state`, a?.state, 1);
   }
 
+  // A Palworld 1.0 world, with the two inserted guild fields. The layout has
+  // to be detected from the file, since nothing in it announces the version.
+  {
+    const { guilds, bases: pb } = await parseLevelSave(buildSav(buildBody('v1')));
+    const g = guilds.find((x) => x.groupId === GUILD_ID);
+    check('[v1] guild count', guilds.length, 2);
+    check('[v1] guild name', g?.name, 'Kabizzle Crew');
+    check('[v1] base camp level', g?.baseCampLevel, 4);
+    check('[v1] member count', g?.members.length, 2);
+    check('[v1] member name', g?.members[1]?.name, 'Rein');
+    check('[v1] admin player id', g?.adminPlayerId, ADMIN);
+    check('[v1] guild base id count', g?.baseIds.length, 2);
+    check('[v1] org has no members', guilds.find((x) => x.groupId === ORG_ID)?.members.length, 0);
+    check('[v1] base joins to guild', pb.find((b) => b.id === BASE_A)?.guildId, GUILD_ID);
+  }
+
+  // A base camp struct that has grown ahead of the transform must still be
+  // located rather than silently plotted somewhere wrong.
+  {
+    const { bases: pb } = await parseLevelSave(buildSav(buildBody('v1', 12)));
+    const a = pb.find((b) => b.id === BASE_A);
+    check('[shifted] base found', !!a, true);
+    check('[shifted] base x', a?.x, -288669);
+    check('[shifted] base y', a?.y, 329207);
+    check('[shifted] base area range', a?.areaRange, 2200);
+    check('[shifted] base joins to guild', a?.guildId, GUILD_ID);
+  }
+
   // Empty and absent data must yield empty results, not throw.
   const bare = await parseLevelSave(buildSav(Buffer.concat([Buffer.from('GVAS'), Buffer.alloc(64)])));
   check('save without guild data returns empty', bare.guilds.length + bare.bases.length, 0);
 
-  let rejected = false;
-  try { await parseLevelSave(Buffer.concat([Buffer.alloc(8), Buffer.from('XXX'), Buffer.from([0x31])])); }
-  catch { rejected = true; }
-  check('non-Palworld file is rejected', rejected, true);
+  const failure = async (data) => {
+    try { await parseLevelSave(data); return ''; } catch (e) { return e.message; }
+  };
+
+  const junk = Buffer.concat([Buffer.alloc(8), Buffer.from('XXX'), Buffer.from([0x31]), Buffer.alloc(32)]);
+  check('non-Palworld file is rejected', /expected "PlZ" or "PlM"/.test(await failure(junk)), true);
+  check('file too short is rejected', /too short/.test(await failure(Buffer.alloc(8))), true);
+
+  // Palworld 1.0 saves are Oodle-compressed and the decoder ships with Palbox,
+  // so a PlM container must reach it. The decoder is ESM while the API compiles
+  // to CommonJS, which is exactly the combination that breaks silently, so the
+  // check is that we get a decode failure rather than a "cannot load" failure.
+  const msg = await failure(buildSav(body, 0x31, 'PlM'));
+  check('Oodle decoder is reachable', /ooz-wasm/.test(msg), false);
+  check('Oodle container is recognised', /expected "PlZ" or "PlM"/.test(msg), false);
+  check('Oodle payload was actually decoded', /decode/i.test(msg), true);
 
   console.log(failures === 0 ? '\nAll save parser checks passed.' : `\n${failures} check(s) failed.`);
   process.exit(failures === 0 ? 0 : 1);

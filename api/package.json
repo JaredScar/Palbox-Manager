@@ -1,6 +1,7 @@
 {
   "name": "@palbox/api",
-  "version": "0.8.8",
+  "version": "0.8.9",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
@@ -25,6 +26,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.0",
     "node-cron": "^3.0.3",
+    "ooz-wasm": "^2.0.0",
     "qrcode": "^1.5.4",
     "rconify": "^1.0.1",
     "speakeasy": "^2.0.0",

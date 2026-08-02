@@ -297,18 +297,10 @@ export function WorldMap() {
   const [loading,   setLoading]   = useState(true);
   const [hovered,   setHovered]   = useState<string | null>(null);
   const [mapFailed, setMapFailed] = useState(false);
-  const [mapInfo, setMapInfo] = useState<{ available: boolean; calibrated: boolean } | null>(null);
   const [world,     setWorld]     = useState<WorldSaveData | null>(null);
   const [showBases, setShowBases] = useState(true);
   const [scanning,  setScanning]  = useState(false);
   const [hoveredBase, setHoveredBase] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch('/api/world-map-image/info', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((d) => setMapInfo(d as { available: boolean; calibrated: boolean }))
-      .catch(() => { /* older server without this endpoint */ });
-  }, []);
 
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -433,14 +425,6 @@ export function WorldMap() {
         title="Palpagos Island"
         description="Live player positions from the Palworld REST API. Scroll to zoom, drag to pan."
       >
-        {/* Positions are only accurate on the game's own map texture, because
-            the projection is an affine transform calibrated to its framing. */}
-        {mapInfo && mapInfo.available && !mapInfo.calibrated && (
-          <div className="mb-3 text-[12px] rounded-lg px-3 py-2 bg-amber-500/10 text-amber-300 border border-amber-500/30">
-            Showing a fallback map image because the in-game map texture could not be downloaded.
-            Player markers will be approximate until it is reachable again.
-          </div>
-        )}
         {restError ? (
           <div className="rounded-xl bg-panel-raised border border-line p-6 text-center space-y-3">
             <div className="text-[14px] font-semibold text-bone">REST API not available</div>
@@ -494,10 +478,13 @@ export function WorldMap() {
                 }}
               >
                 {!mapFailed ? (
-                  // Proxied through the API: the upstream hosts refuse
-                  // hotlinked requests, so a direct <img> renders nothing.
+                  // Shipped with the panel rather than fetched. The projection
+                  // is an affine transform calibrated to this exact texture,
+                  // so any substitute puts every marker somewhere else - which
+                  // is what happened while this was downloaded at runtime and
+                  // quietly fell back to a differently framed wiki render.
                   <img
-                    src="/api/world-map-image"
+                    src="/palworld-map.webp"
                     alt="Palpagos Island"
                     // "fill" not "cover": cover crops the texture, and the
                     // projection assumes the whole image is visible and maps

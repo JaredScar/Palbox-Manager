@@ -258,6 +258,30 @@ into the `instances` table on first boot; you can change paths later via the Set
 
 ---
 
+## Save file compatibility
+
+Palworld 1.0 changed two things about `Level.sav`, and Palbox handles both
+automatically — there is nothing to configure:
+
+- **Compression.** 1.0 writes an Oodle/Kraken container (`PlM`) instead of the
+  older zlib one (`PlZ`). Oodle is proprietary, so Palbox decodes it with
+  [`ooz-wasm`](https://github.com/SnosMe/ooz-wasm), an open source
+  reimplementation compiled to WebAssembly.
+- **Guild layout.** 1.0 inserted two fields into the guild struct. Palbox reads
+  a save with both layouts and keeps whichever one decodes it cleanly, so pre-1.0
+  worlds still work.
+
+This only affects the guild and base camp overlay on the World Map, the one
+feature that reads the save directly. Everything else runs off the REST API.
+
+---
+
 ## License
 
-MIT
+[GPL-3.0-or-later](LICENSE).
+
+Palbox links `ooz-wasm` to read Palworld 1.0 saves, which is GPL-3.0-or-later,
+so the panel as a whole is distributed under the same terms.
+
+The Palpagos Island map texture in `ui/public/` is game artwork owned by
+Pocketpair, included for in-panel display only.

@@ -43,7 +43,6 @@ import savebrowserRoutes from './routes/savebrowser.js';
 import worldSaveRoutes from './routes/worldSave.js';
 import searchRoutes from './routes/search.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
-import worldMapAssetRoutes from './routes/worldMapAsset.js';
 
 const app = express();
 
@@ -88,7 +87,6 @@ app.use('/api/instances/:instanceId/savebrowser', savebrowserRoutes);
 app.use('/api/instances/:instanceId/world-save', worldSaveRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/instances/:instanceId/server/diagnostics', diagnosticsRoutes);
-app.use('/api/world-map-image', worldMapAssetRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
